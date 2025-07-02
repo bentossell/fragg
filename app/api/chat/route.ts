@@ -5,6 +5,7 @@ import { toPrompt } from '@/lib/prompt'
 import ratelimit from '@/lib/ratelimit'
 import { fragmentSchema as schema } from '@/lib/schema'
 import templates, { Templates } from '@/lib/templates'
+import { selectOptimalTemplate } from '@/lib/template-selector'
 import { streamObject, LanguageModel, CoreMessage } from 'ai'
 
 export const maxDuration = 60
@@ -67,7 +68,18 @@ export async function POST(req: Request) {
   }
   
   const modelToUse = model || defaultModel
-  const templateToUse = template || templates
+  
+  // Smart template selection based on user's last message
+  let templateToUse = template || templates
+  
+  // If auto mode (all templates), select optimal template based on user prompt
+  if (templateToUse === templates) {
+    const lastUserMessage = messages.filter(m => m.role === 'user').pop()
+    const userPrompt = lastUserMessage?.content || ''
+    const optimalTemplate = selectOptimalTemplate(String(userPrompt)) as keyof typeof templates
+    templateToUse = { [optimalTemplate]: templates[optimalTemplate] } as Templates
+  }
+  
   const { model: modelNameString, apiKey: modelApiKey, ...modelParams } = config
   const modelClient = getModelClient(modelToUse, config)
 
