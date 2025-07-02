@@ -1,6 +1,7 @@
 import { FragmentSchema } from '@/lib/schema'
 import { ExecutionResultInterpreter, ExecutionResultWeb } from '@/lib/types'
 import { Sandbox } from '@e2b/code-interpreter'
+import { injectAI } from '@/lib/inject-ai'
 
 const sandboxTimeout = 10 * 60 * 1000 // 10 minute in ms
 
@@ -48,15 +49,17 @@ export async function POST(req: Request) {
     )
   }
 
-  // Copy code to fs
+  // Copy code to fs with AI injection
   if (fragment.code && Array.isArray(fragment.code)) {
     fragment.code.forEach(async (file) => {
-      await sbx.files.write(file.file_path, file.file_content)
-      console.log(`Copied file to ${file.file_path} in ${sbx.sandboxId}`)
+      const codeWithAI = injectAI(file.file_content, fragment.template, file.file_path, process.env.OPENROUTER_API_KEY)
+      await sbx.files.write(file.file_path, codeWithAI)
+      console.log(`Copied file with AI to ${file.file_path} in ${sbx.sandboxId}`)
     })
   } else {
-    await sbx.files.write(fragment.file_path, fragment.code)
-    console.log(`Copied file to ${fragment.file_path} in ${sbx.sandboxId}`)
+    const codeWithAI = injectAI(fragment.code, fragment.template, fragment.file_path, process.env.OPENROUTER_API_KEY)
+    await sbx.files.write(fragment.file_path, codeWithAI)
+    console.log(`Copied file with AI to ${fragment.file_path} in ${sbx.sandboxId}`)
   }
 
   // Execute code or return a URL to the running sandbox

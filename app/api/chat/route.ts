@@ -4,7 +4,7 @@ import { LLMModel, LLMModelConfig } from '@/lib/models'
 import { toPrompt } from '@/lib/prompt'
 import ratelimit from '@/lib/ratelimit'
 import { fragmentSchema as schema } from '@/lib/schema'
-import { Templates } from '@/lib/templates'
+import templates, { Templates } from '@/lib/templates'
 import { streamObject, LanguageModel, CoreMessage } from 'ai'
 
 export const maxDuration = 60
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     teamID,
     template,
     model,
-    config,
+    config = {},
   }: {
     messages: CoreMessage[]
     userID: string | undefined
@@ -58,14 +58,24 @@ export async function POST(req: Request) {
   console.log('model', model)
   // console.log('config', config)
 
+  // Provide default model if undefined
+  const defaultModel = {
+    id: 'anthropic/claude-sonnet-4',
+    name: 'Claude Sonnet 4',
+    provider: 'OpenRouter',
+    providerId: 'openrouter'
+  }
+  
+  const modelToUse = model || defaultModel
+  const templateToUse = template || templates
   const { model: modelNameString, apiKey: modelApiKey, ...modelParams } = config
-  const modelClient = getModelClient(model, config)
+  const modelClient = getModelClient(modelToUse, config)
 
   try {
     const stream = await streamObject({
       model: modelClient as LanguageModel,
       schema,
-      system: toPrompt(template),
+      system: toPrompt(templateToUse),
       messages,
       maxRetries: 0, // do not retry on errors
       ...modelParams,

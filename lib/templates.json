@@ -27,7 +27,7 @@
       "pandas",
       "numpy",
       "matplotlib",
-      "request",
+      "requests",
       "seaborn",
       "plotly"
     ],
@@ -42,7 +42,7 @@
       "pandas",
       "numpy",
       "matplotlib",
-      "request",
+      "requests",
       "seaborn",
       "plotly"
     ],

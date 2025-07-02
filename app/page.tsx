@@ -31,7 +31,7 @@ export default function Home() {
   const [languageModel, setLanguageModel] = useLocalStorage<LLMModelConfig>(
     'languageModel',
     {
-      model: 'claude-3-5-sonnet-latest',
+      model: 'anthropic/claude-3.5-sonnet',
     },
   )
 

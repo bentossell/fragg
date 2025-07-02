@@ -1,0 +1,459 @@
+
+> e2b-fragments@0.1.0 dev
+> next dev --turbo
+
+  ▲ Next.js 14.2.30 (turbo)
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Compiled in 82ms
+ ✓ Ready in 708ms
+ ○ Compiling / ...
+(node:93243) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ Compiled / in 2.5s
+ GET / 200 in 2706ms
+ ✓ Compiled /test-ai in 99ms
+ GET /test-ai 200 in 128ms
+ ✓ Compiled in 45ms
+ GET / 200 in 67ms
+ ○ Compiling /_not-found/page ...
+ ✓ Compiled /_not-found/page in 648ms
+ GET /.well-known/appspecific/com.chrome.devtools.json 404 in 682ms
+ GET / 200 in 49ms
+ GET /.well-known/appspecific/com.chrome.devtools.json 404 in 232ms
+ ✓ Compiled /api/ai-proxy in 133ms
+ ✓ Compiled /favicon.ico in 132ms
+ GET /favicon.ico?favicon.dcb4bdce.ico 200 in 155ms
+AI Proxy: unknown used claude-3-haiku
+ POST /api/ai-proxy 200 in 1067ms
+ ✓ Compiled /api/chat in 188ms
+userID undefined
+teamID undefined
+model {
+  id: 'anthropic/claude-3-haiku',
+  provider: 'OpenRouter',
+  providerId: 'openrouter',
+  name: 'Claude 3 Haiku'
+}
+Error: TypeError: Cannot read properties of undefined (reading 'join')
+    at /Users/bentossell/coding/fragg/.next/server/chunks/_5c5eb1._.js:59:165
+    at Array.map (<anonymous>)
+    at templatesToPrompt (/Users/bentossell/coding/fragg/.next/server/chunks/_5c5eb1._.js:59:41)
+    at toPrompt (/Users/bentossell/coding/fragg/.next/server/chunks/_5c5eb1._.js:82:147)
+    at POST (/Users/bentossell/coding/fragg/.next/server/chunks/_5c5eb1._.js:194:149)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async /Users/bentossell/coding/fragg/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:57228
+    at async eT.execute (/Users/bentossell/coding/fragg/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:46851)
+    at async eT.handle (/Users/bentossell/coding/fragg/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:58760)
+    at async doRender (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:1366:42)
+    at async cacheEntry.responseCache.get.routeKind (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:1588:28)
+    at async DevServer.renderToResponseWithComponentsImpl (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:1496:28)
+    at async DevServer.renderPageComponent (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:1924:24)
+    at async DevServer.renderToResponseImpl (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:1962:32)
+    at async DevServer.pipeImpl (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:922:25)
+    at async NextNodeServer.handleCatchallRenderRequest (/Users/bentossell/coding/fragg/node_modules/next/dist/server/next-server.js:272:17)
+    at async DevServer.handleRequestImpl (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:818:17)
+    at async /Users/bentossell/coding/fragg/node_modules/next/dist/server/dev/next-dev-server.js:339:20
+    at async Span.traceAsyncFn (/Users/bentossell/coding/fragg/node_modules/next/dist/trace/trace.js:154:20)
+    at async DevServer.handleRequest (/Users/bentossell/coding/fragg/node_modules/next/dist/server/dev/next-dev-server.js:336:24)
+    at async invokeRender (/Users/bentossell/coding/fragg/node_modules/next/dist/server/lib/router-server.js:179:21)
+    at async handleRequest (/Users/bentossell/coding/fragg/node_modules/next/dist/server/lib/router-server.js:359:24)
+    at async requestHandlerImpl (/Users/bentossell/coding/fragg/node_modules/next/dist/server/lib/router-server.js:383:13)
+    at async Server.requestListener (/Users/bentossell/coding/fragg/node_modules/next/dist/server/lib/start-server.js:141:13)
+ POST /api/chat 500 in 216ms
+ ✓ Compiled in 52ms
+ ✓ Compiled in 38ms
+userID undefined
+teamID undefined
+model {
+  id: 'anthropic/claude-3-haiku',
+  provider: 'OpenRouter',
+  providerId: 'openrouter',
+  name: 'Claude 3 Haiku'
+}
+Error: TypeError: Cannot read properties of undefined (reading 'join')
+    at /Users/bentossell/coding/fragg/.next/server/chunks/_5c5eb1._.js:59:165
+    at Array.map (<anonymous>)
+    at templatesToPrompt (/Users/bentossell/coding/fragg/.next/server/chunks/_5c5eb1._.js:59:41)
+    at toPrompt (/Users/bentossell/coding/fragg/.next/server/chunks/_5c5eb1._.js:82:147)
+    at POST (/Users/bentossell/coding/fragg/.next/server/chunks/_5c5eb1._.js:195:149)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async /Users/bentossell/coding/fragg/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:57228
+    at async eT.execute (/Users/bentossell/coding/fragg/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:46851)
+    at async eT.handle (/Users/bentossell/coding/fragg/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:58760)
+    at async doRender (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:1366:42)
+    at async cacheEntry.responseCache.get.routeKind (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:1588:28)
+    at async DevServer.renderToResponseWithComponentsImpl (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:1496:28)
+    at async DevServer.renderPageComponent (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:1924:24)
+    at async DevServer.renderToResponseImpl (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:1962:32)
+    at async DevServer.pipeImpl (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:922:25)
+    at async NextNodeServer.handleCatchallRenderRequest (/Users/bentossell/coding/fragg/node_modules/next/dist/server/next-server.js:272:17)
+    at async DevServer.handleRequestImpl (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:818:17)
+    at async /Users/bentossell/coding/fragg/node_modules/next/dist/server/dev/next-dev-server.js:339:20
+    at async Span.traceAsyncFn (/Users/bentossell/coding/fragg/node_modules/next/dist/trace/trace.js:154:20)
+    at async DevServer.handleRequest (/Users/bentossell/coding/fragg/node_modules/next/dist/server/dev/next-dev-server.js:336:24)
+    at async invokeRender (/Users/bentossell/coding/fragg/node_modules/next/dist/server/lib/router-server.js:179:21)
+    at async handleRequest (/Users/bentossell/coding/fragg/node_modules/next/dist/server/lib/router-server.js:359:24)
+    at async requestHandlerImpl (/Users/bentossell/coding/fragg/node_modules/next/dist/server/lib/router-server.js:383:13)
+    at async Server.requestListener (/Users/bentossell/coding/fragg/node_modules/next/dist/server/lib/start-server.js:141:13)
+ POST /api/chat 500 in 32ms
+ ✓ Compiled in 23ms
+userID undefined
+teamID undefined
+model {
+  id: 'anthropic/claude-3-haiku',
+  provider: 'OpenRouter',
+  providerId: 'openrouter',
+  name: 'Claude 3 Haiku'
+}
+Error: TypeError: Cannot read properties of undefined (reading 'join')
+    at /Users/bentossell/coding/fragg/.next/server/chunks/_5c5eb1._.js:59:165
+    at Array.map (<anonymous>)
+    at templatesToPrompt (/Users/bentossell/coding/fragg/.next/server/chunks/_5c5eb1._.js:59:41)
+    at toPrompt (/Users/bentossell/coding/fragg/.next/server/chunks/_5c5eb1._.js:82:147)
+    at POST (/Users/bentossell/coding/fragg/.next/server/chunks/_5c5eb1._.js:197:149)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async /Users/bentossell/coding/fragg/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:57228
+    at async eT.execute (/Users/bentossell/coding/fragg/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:46851)
+    at async eT.handle (/Users/bentossell/coding/fragg/node_modules/next/dist/compiled/next-server/app-route.runtime.dev.js:6:58760)
+    at async doRender (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:1366:42)
+    at async cacheEntry.responseCache.get.routeKind (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:1588:28)
+    at async DevServer.renderToResponseWithComponentsImpl (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:1496:28)
+    at async DevServer.renderPageComponent (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:1924:24)
+    at async DevServer.renderToResponseImpl (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:1962:32)
+    at async DevServer.pipeImpl (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:922:25)
+    at async NextNodeServer.handleCatchallRenderRequest (/Users/bentossell/coding/fragg/node_modules/next/dist/server/next-server.js:272:17)
+    at async DevServer.handleRequestImpl (/Users/bentossell/coding/fragg/node_modules/next/dist/server/base-server.js:818:17)
+    at async /Users/bentossell/coding/fragg/node_modules/next/dist/server/dev/next-dev-server.js:339:20
+    at async Span.traceAsyncFn (/Users/bentossell/coding/fragg/node_modules/next/dist/trace/trace.js:154:20)
+    at async DevServer.handleRequest (/Users/bentossell/coding/fragg/node_modules/next/dist/server/dev/next-dev-server.js:336:24)
+    at async invokeRender (/Users/bentossell/coding/fragg/node_modules/next/dist/server/lib/router-server.js:179:21)
+    at async handleRequest (/Users/bentossell/coding/fragg/node_modules/next/dist/server/lib/router-server.js:359:24)
+    at async requestHandlerImpl (/Users/bentossell/coding/fragg/node_modules/next/dist/server/lib/router-server.js:383:13)
+    at async Server.requestListener (/Users/bentossell/coding/fragg/node_modules/next/dist/server/lib/start-server.js:141:13)
+ POST /api/chat 500 in 64ms
+ GET / 200 in 38ms
+ ✓ Compiled /api/sandbox in 191ms
+fragment {
+  template: 'code-interpreter-v1',
+  code: 'print("Hello World")',
+  file_path: 'main.py',
+  additional_dependencies: [],
+  lib: [ 'python3' ],
+  has_additional_dependencies: false,
+  install_dependencies_command: ''
+}
+userID undefined
+Copied file with AI to main.py in iffevs2r5ezpswazp09ua-8eeffb59
+ POST /api/sandbox 200 in 1622ms
+fragment {
+  template: 'code-interpreter-v1',
+  code: 'print("Hello World")',
+  file_path: 'main.py',
+  additional_dependencies: [],
+  lib: [ 'python3' ],
+  has_additional_dependencies: false,
+  install_dependencies_command: ''
+}
+userID undefined
+Copied file with AI to main.py in i17xc8qw1lezp8lgxf3r7-fd361f9f
+ POST /api/sandbox 200 in 1200ms
+fragment {
+  template: 'nextjs',
+  code: [
+    {
+      file_path: 'app/page.tsx',
+      file_content: 'export default function Home() {\n' +
+        '  return (\n' +
+        '    <div>\n' +
+        '      <h1>Hello World</h1>\n' +
+        '      <button onClick={() => console.log("Test")}>Click me</button>\n' +
+        '    </div>\n' +
+        '  );\n' +
+        '}'
+    }
+  ],
+  additional_dependencies: [],
+  lib: [ 'next', 'react', 'react-dom' ],
+  has_additional_dependencies: false,
+  install_dependencies_command: '',
+  port: 3000
+}
+userID undefined
+ ⨯ SandboxError: 403: Team  'f1a668e8-03f1-47b4-859b-d8b189178246' does not have access to the template 'nextjs'
+    at handleApiError (/Users/bentossell/coding/fragg/.next/server/chunks/node_modules_2ef63e._.js:16759:12)
+    at Sandbox.<anonymous> (/Users/bentossell/coding/fragg/.next/server/chunks/node_modules_2ef63e._.js:18034:25)
+    at Generator.next (<anonymous>)
+    at fulfilled (/Users/bentossell/coding/fragg/.next/server/chunks/node_modules_2ef63e._.js:16525:32)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+ POST /api/sandbox 500 in 361ms
+fragment {
+  template: 'nextjs-developer',
+  code: [
+    {
+      file_path: 'pages/index.tsx',
+      file_content: 'export default function Home() {\n' +
+        '  return (\n' +
+        '    <div>\n' +
+        '      <h1>Hello World</h1>\n' +
+        '      <button onClick={() => console.log("Test")}>Click me</button>\n' +
+        '    </div>\n' +
+        '  );\n' +
+        '}'
+    }
+  ],
+  additional_dependencies: [],
+  lib: [
+    'nextjs@14.2.5',
+    'typescript',
+    '@types/node',
+    '@types/react',
+    '@types/react-dom',
+    'postcss',
+    'tailwindcss'
+  ],
+  has_additional_dependencies: false,
+  install_dependencies_command: '',
+  port: 3000
+}
+userID undefined
+ POST /api/sandbox 200 in 731ms
+Copied file with AI to pages/index.tsx in is77isktfa50veu0a2r82-f7fad4b0
+ GET / 200 in 64ms
+ ✓ Compiled /_not-found/page in 128ms
+ GET /.well-known/appspecific/com.chrome.devtools.json 404 in 205ms
+ GET /favicon.ico?favicon.dcb4bdce.ico 200 in 42ms
+ GET / 200 in 68ms
+ GET /.well-known/appspecific/com.chrome.devtools.json 404 in 181ms
+ GET /favicon.ico?favicon.dcb4bdce.ico 200 in 42ms
+ GET / 200 in 53ms
+ GET /.well-known/appspecific/com.chrome.devtools.json 404 in 147ms
+ ✓ Compiled in 99ms
+ GET / 200 in 228ms
+ ✓ Compiled /_not-found/page in 117ms
+ GET /.well-known/appspecific/com.chrome.devtools.json 404 in 213ms
+ GET /favicon.ico?favicon.dcb4bdce.ico 200 in 40ms
+userID undefined
+teamID undefined
+model undefined
+ POST /api/chat 200 in 15622ms
+fragment {
+  commentary: "I'll create a simple timer application using Next.js. This timer will:\n" +
+    '1. Display a countdown timer\n' +
+    '2. Allow users to set custom time\n' +
+    '3. Have start, pause, and reset functionality\n' +
+    '4. Use Tailwind CSS for styling\n' +
+    '5. Implement a clean, modern UI with shadcn components\n' +
+    '\n' +
+    "I'll create a functional component that uses React hooks (useState, useEffect) to manage the timer state and countdown logic.",
+  template: 'nextjs-developer',
+  title: 'Timer App',
+  description: 'A countdown timer with start, pause, and reset functionality.',
+  additional_dependencies: [],
+  has_additional_dependencies: false,
+  install_dependencies_command: '',
+  port: 3000,
+  file_path: 'pages/index.tsx',
+  code: "import { useState, useEffect } from 'react';\n" +
+    'import { Button } from "@/components/ui/button";\n' +
+    'import { Input } from "@/components/ui/input";\n' +
+    'import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";\n' +
+    '\n' +
+    'export default function Timer() {\n' +
+    '  const [time, setTime] = useState(300); // 5 minutes in seconds\n' +
+    '  const [isRunning, setIsRunning] = useState(false);\n' +
+    "  const [inputMinutes, setInputMinutes] = useState('5');\n" +
+    '\n' +
+    '  useEffect(() => {\n' +
+    '    let interval: NodeJS.Timeout;\n' +
+    '\n' +
+    '    if (isRunning && time > 0) {\n' +
+    '      interval = setInterval(() => {\n' +
+    '        setTime((prevTime) => prevTime - 1);\n' +
+    '      }, 1000);\n' +
+    '    }\n' +
+    '\n' +
+    '    return () => {\n' +
+    '      if (interval) {\n' +
+    '        clearInterval(interval);\n' +
+    '      }\n' +
+    '    };\n' +
+    '  }, [isRunning, time]);\n' +
+    '\n' +
+    '  const formatTime = (seconds: number) => {\n' +
+    '    const minutes = Math.floor(seconds / 60);\n' +
+    '    const remainingSeconds = seconds % 60;\n' +
+    "    return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;\n" +
+    '  };\n' +
+    '\n' +
+    '  const handleStart = () => {\n' +
+    '    if (time === 0) {\n' +
+    '      setTime(parseInt(inputMinutes) * 60);\n' +
+    '    }\n' +
+    '    setIsRunning(true);\n' +
+    '  };\n' +
+    '\n' +
+    '  const handlePause = () => {\n' +
+    '    setIsRunning(false);\n' +
+    '  };\n' +
+    '\n' +
+    '  const handleReset = () => {\n' +
+    '    setIsRunning(false);\n' +
+    '    setTime(parseInt(inputMinutes) * 60);\n' +
+    '  };\n' +
+    '\n' +
+    '  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {\n' +
+    '    const value = e.target.value;\n' +
+    '    if (/^\\d*$/.test(value)) {\n' +
+    '      setInputMinutes(value);\n' +
+    '      if (!isRunning) {\n' +
+    "        setTime(parseInt(value || '0') * 60);\n" +
+    '      }\n' +
+    '    }\n' +
+    '  };\n' +
+    '\n' +
+    '  return (\n' +
+    '    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">\n' +
+    '      <Card className="w-full max-w-md">\n' +
+    '        <CardHeader>\n' +
+    '          <CardTitle className="text-center text-2xl">Countdown Timer</CardTitle>\n' +
+    '        </CardHeader>\n' +
+    '        <CardContent>\n' +
+    '          <div className="space-y-6">\n' +
+    '            <div className="text-center">\n' +
+    '              <div className="text-6xl font-bold mb-8 font-mono">\n' +
+    '                {formatTime(time)}\n' +
+    '              </div>\n' +
+    '              <div className="flex gap-2 mb-6">\n' +
+    '                <Input\n' +
+    '                  type="text"\n' +
+    '                  value={inputMinutes}\n' +
+    '                  onChange={handleInputChange}\n' +
+    '                  placeholder="Minutes"\n' +
+    '                  className="text-center"\n' +
+    '                  disabled={isRunning}\n' +
+    '                />\n' +
+    '              </div>\n' +
+    '              <div className="flex gap-2 justify-center">\n' +
+    '                {!isRunning ? (\n' +
+    '                  <Button onClick={handleStart}>\n' +
+    '                    Start\n' +
+    '                  </Button>\n' +
+    '                ) : (\n' +
+    '                  <Button onClick={handlePause} variant="secondary">\n' +
+    '                    Pause\n' +
+    '                  </Button>\n' +
+    '                )}\n' +
+    '                <Button onClick={handleReset} variant="outline">\n' +
+    '                  Reset\n' +
+    '                </Button>\n' +
+    '              </div>\n' +
+    '            </div>\n' +
+    '          </div>\n' +
+    '        </CardContent>\n' +
+    '      </Card>\n' +
+    '    </div>\n' +
+    '  );\n' +
+    '}'
+}
+userID undefined
+Copied file with AI to pages/index.tsx in iof2lwx7odcnm10y483n0-67845037
+ POST /api/sandbox 200 in 789ms
+userID undefined
+teamID undefined
+model undefined
+ POST /api/chat 200 in 18178ms
+fragment {
+  commentary: "I'll create a Gradio interface for an AI-powered recipe generator that:\n" +
+    '1. Takes ingredients as input\n' +
+    '2. Uses a predefined template to structure recipes\n' +
+    '3. Provides cooking instructions and ingredient measurements\n' +
+    '4. Has a clean interface with text input and output\n' +
+    '5. Includes example inputs for better user experience\n' +
+    '\n' +
+    'The app will use the OpenAI API to generate recipes based on user input ingredients. The interface will be simple but effective, with clear instructions and formatting.',
+  template: 'gradio-developer',
+  title: 'Recipe Generator',
+  description: 'AI-powered recipe generator using OpenAI API and Gradio interface',
+  additional_dependencies: [ 'openai' ],
+  has_additional_dependencies: true,
+  install_dependencies_command: 'pip install openai',
+  port: 7860,
+  file_path: 'app.py',
+  code: 'import gradio as gr\n' +
+    'import openai\n' +
+    'from typing import List\n' +
+    '\n' +
+    '# Initialize OpenAI client\n' +
+    'client = openai.OpenAI()  # Make sure to set OPENAI_API_KEY in your environment variables\n' +
+    '\n' +
+    'def generate_recipe(ingredients: str) -> str:\n' +
+    '    # Clean and format ingredients\n' +
+    "    ingredients_list = [i.strip() for i in ingredients.split(',') if i.strip()]\n" +
+    '    \n' +
+    '    # Prepare the prompt\n' +
+    `    prompt = f"""Create a recipe using these ingredients: {', '.join(ingredients_list)}\n` +
+    '    Please include:\n' +
+    '    1. Recipe name\n' +
+    '    2. Total cooking time\n' +
+    '    3. Servings\n' +
+    '    4. Complete list of ingredients with measurements\n' +
+    '    5. Step-by-step cooking instructions\n' +
+    '    6. Any possible substitutions\n' +
+    '    7. Nutritional information (approximate)\n' +
+    '    """\n' +
+    '    \n' +
+    '    try:\n' +
+    '        # Generate recipe using OpenAI\n' +
+    '        response = client.chat.completions.create(\n' +
+    '            model="gpt-3.5-turbo",\n' +
+    '            messages=[\n' +
+    '                {"role": "system", "content": "You are a professional chef who creates detailed, easy-to-follow recipes."},\n' +
+    '                {"role": "user", "content": prompt}\n' +
+    '            ],\n' +
+    '            temperature=0.7,\n' +
+    '            max_tokens=1000\n' +
+    '        )\n' +
+    '        \n' +
+    '        # Extract and return the generated recipe\n' +
+    '        return response.choices[0].message.content\n' +
+    '        \n' +
+    '    except Exception as e:\n' +
+    '        return f"Error generating recipe: {str(e)}"\n' +
+    '\n' +
+    '# Create the Gradio interface\n' +
+    'demo = gr.Interface(\n' +
+    '    fn=generate_recipe,\n' +
+    '    inputs=[\n' +
+    '        gr.Textbox(\n' +
+    '            label="Enter ingredients (separated by commas)",\n' +
+    '            placeholder="chicken, rice, onions, garlic",\n' +
+    '            lines=3\n' +
+    '        )\n' +
+    '    ],\n' +
+    '    outputs=gr.Textbox(\n' +
+    '        label="Generated Recipe",\n' +
+    '        lines=15\n' +
+    '    ),\n' +
+    '    title="AI Recipe Generator",\n' +
+    `    description="Enter ingredients you have, and I'll create a recipe for you!",\n` +
+    '    examples=[\n' +
+    '        ["chicken, rice, onions, garlic"],\n' +
+    '        ["pasta, tomatoes, basil, olive oil"],\n' +
+    '        ["salmon, lemon, butter, potatoes, asparagus"],\n' +
+    '        ["flour, eggs, milk, sugar, vanilla"]\n' +
+    '    ],\n' +
+    '    theme=gr.themes.Soft()\n' +
+    ')\n' +
+    '\n' +
+    '# Launch the app\n' +
+    'if __name__ == "__main__":\n' +
+    '    demo.launch()'
+}
+userID undefined
+Installed dependencies: openai in sandbox iwihjienn5iof9uern8yz-82c1900a
+Copied file with AI to app.py in iwihjienn5iof9uern8yz-82c1900a
+ POST /api/sandbox 200 in 16790ms
+ ✓ Compiled in 44ms
