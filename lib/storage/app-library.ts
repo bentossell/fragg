@@ -5,17 +5,25 @@ export interface ChatMessage {
   createdAt: string
 }
 
+export interface FragmentVersion {
+  fragment: any // Fragment code
+  result?: any // ExecutionResult
+  timestamp: number
+}
+
 export interface SavedApp {
   id: string
   name: string
   description?: string
   template: string
-  code: any // Fragment code
+  code: any // Fragment code (latest version)
   messages: ChatMessage[]
   createdAt: string
   updatedAt: string
-  sandboxConfig?: any
+  sandboxConfig?: any // Latest sandbox config
   lastSandboxId?: string
+  fragmentVersions?: FragmentVersion[] // All versions of the app
+  currentVersionIndex?: number // Current selected version
 }
 
 export class AppLibrary {
@@ -27,7 +35,40 @@ export class AppLibrary {
   getApps(): SavedApp[] {
     if (typeof window === 'undefined') return []
     const data = localStorage.getItem(this.APPS_KEY)
-    return data ? JSON.parse(data) : []
+    const apps = data ? JSON.parse(data) : []
+    
+    // Migrate old apps to new format if needed
+    return apps.map((app: any) => this.migrateApp(app))
+  }
+  
+  /**
+   * Migrate old app format to new format with fragment versions
+   */
+  private migrateApp(app: any): SavedApp {
+    // If app already has fragmentVersions, no migration needed
+    if (app.fragmentVersions) {
+      return app
+    }
+    
+    // Migrate old format to new format
+    const migratedApp: SavedApp = {
+      ...app,
+      fragmentVersions: [],
+      currentVersionIndex: -1
+    }
+    
+    // If app has code, create a version from it
+    if (app.code) {
+      const version: FragmentVersion = {
+        fragment: app.code,
+        result: app.sandboxConfig,
+        timestamp: new Date(app.updatedAt || app.createdAt).getTime()
+      }
+      migratedApp.fragmentVersions = [version]
+      migratedApp.currentVersionIndex = 0
+    }
+    
+    return migratedApp
   }
   
   /**

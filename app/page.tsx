@@ -177,15 +177,17 @@ function SimplifiedHomeContent() {
         // Auto-save the app when code is generated
         setIsAutoSaving(true)
         const firstUserMessage = currentMessages.find(m => m.role === 'user')
-        const userPrompt = firstUserMessage?.content[0]?.type === 'text' ? firstUserMessage.content[0].text : ''
+        const name = appName || generateAppName(
+          firstUserMessage?.content[0]?.type === 'text' ? firstUserMessage.content[0].text : 'App'
+        )
         
-        // Generate a name based on the user's prompt
-        const generatedName = appName || generateAppName(userPrompt)
+        // Update fragment versions before saving
+        const updatedFragmentVersions = [...fragmentVersions, newVersion]
         
         const savedApp = appLibrary.saveApp({
           id: currentAppId || undefined,
-          name: generatedName,
-          description: userPrompt,
+          name,
+          description: firstUserMessage?.content[0]?.type === 'text' ? firstUserMessage.content[0].text : '',
           template: selectedTemplate === 'auto' ? 'auto' : selectedTemplate,
           code: fragment,
           messages: currentMessages
@@ -196,24 +198,20 @@ function SimplifiedHomeContent() {
               content: msg.content.map(c => c.type === 'text' ? c.text : '').join('\n'),
               createdAt: new Date().toISOString(),
             })),
-          lastSandboxId: result?.sbxId,
+          lastSandboxId: result.sbxId,
           sandboxConfig: result,
+          fragmentVersions: updatedFragmentVersions,
+          currentVersionIndex: updatedFragmentVersions.length - 1
         })
         
-        // Update app ID and name if it's a new app
         if (!currentAppId) {
           setCurrentAppId(savedApp.id)
-          setAppName(generatedName)
+        }
+        if (!appName) {
+          setAppName(savedApp.name)
         }
         
-        // Show auto-save notification
-        setTimeout(() => {
-          setIsAutoSaving(false)
-          toast({
-            title: 'App auto-saved',
-            description: `Your app "${generatedName}" has been saved automatically.`,
-          })
-        }, 1000)
+        setTimeout(() => setIsAutoSaving(false), 1500)
       }
     },
   })
@@ -340,12 +338,14 @@ function SimplifiedHomeContent() {
           code: fragment,
           template: selectedTemplate === 'auto' ? 'auto' : selectedTemplate,
           sandboxConfig: result,
+          fragmentVersions: fragmentVersions,
+          currentVersionIndex: currentVersionIndex
         })
       }
     }, 30000) // Auto-save every 30 seconds
     
     return () => clearInterval(saveInterval)
-  }, [currentAppId, messages, fragment, selectedTemplate, result])
+  }, [currentAppId, messages, fragment, selectedTemplate, result, fragmentVersions, currentVersionIndex])
 
   const handleNewApp = useCallback(async () => {
     // Close current sandbox
@@ -393,6 +393,8 @@ function SimplifiedHomeContent() {
         })),
       lastSandboxId: result?.sbxId,
       sandboxConfig: result,
+      fragmentVersions: fragmentVersions,
+      currentVersionIndex: currentVersionIndex
     })
     
     setCurrentAppId(savedApp.id)
@@ -401,7 +403,7 @@ function SimplifiedHomeContent() {
       title: 'App saved',
       description: `"${name}" has been saved to your library.`,
     })
-  }, [appName, currentAppId, messages, fragment, selectedTemplate, result])
+  }, [appName, currentAppId, messages, fragment, selectedTemplate, result, fragmentVersions, currentVersionIndex])
 
   const handleLoadFromLibrary = useCallback(async (app: SavedApp) => {
     // Close current sandbox
@@ -411,6 +413,34 @@ function SimplifiedHomeContent() {
     setCurrentAppId(app.id)
     setAppName(app.name)
     setSelectedTemplate(app.template as 'auto' | TemplateId)
+    
+    // Restore fragment versions if available
+    if (app.fragmentVersions && app.fragmentVersions.length > 0) {
+      setFragmentVersions(app.fragmentVersions)
+      setCurrentVersionIndex(app.currentVersionIndex ?? app.fragmentVersions.length - 1)
+      
+      // Load the current version
+      const currentVersion = app.fragmentVersions[app.currentVersionIndex ?? app.fragmentVersions.length - 1]
+      setFragment(currentVersion.fragment)
+      setResult(currentVersion.result)
+    } else {
+      // Fallback to old format - create a single version from app.code
+      setFragment(app.code)
+      setResult(app.sandboxConfig)
+      
+      if (app.code) {
+        const version: FragmentVersion = {
+          fragment: app.code,
+          result: app.sandboxConfig,
+          timestamp: new Date(app.updatedAt).getTime()
+        }
+        setFragmentVersions([version])
+        setCurrentVersionIndex(0)
+      } else {
+        setFragmentVersions([])
+        setCurrentVersionIndex(-1)
+      }
+    }
     
     // Convert app messages to chat messages
     const chatMessages: Message[] = app.messages.map((msg, index) => ({
@@ -423,34 +453,55 @@ function SimplifiedHomeContent() {
     }))
     
     setMessages(chatMessages)
-    setFragment(app.code)
-    setResult(app.sandboxConfig)
     
-    // If there's code, switch to preview tab (even without sandboxConfig)
-    if (app.code) {
+    // If there's code, switch to preview tab
+    if (app.code || (app.fragmentVersions && app.fragmentVersions.length > 0)) {
       setCurrentTab('fragment')
       
+      // Get the current fragment and result
+      const currentFragment = app.fragmentVersions && app.fragmentVersions.length > 0 
+        ? app.fragmentVersions[app.currentVersionIndex ?? app.fragmentVersions.length - 1].fragment
+        : app.code
+      const currentResult = app.fragmentVersions && app.fragmentVersions.length > 0
+        ? app.fragmentVersions[app.currentVersionIndex ?? app.fragmentVersions.length - 1].result
+        : app.sandboxConfig
+      
       // If we have code but no sandbox result, recreate the sandbox
-      if (!app.sandboxConfig) {
+      if (currentFragment && !currentResult) {
         setIsPreviewLoading(true)
         try {
           const response = await fetch('/api/sandbox', {
             method: 'POST',
             body: JSON.stringify({
-              fragment: app.code,
+              fragment: currentFragment,
               sessionId: app.id,
             }),
           })
           
+          if (!response.ok) {
+            throw new Error(`Sandbox creation failed: ${response.statusText}`)
+          }
+          
           const result = await response.json()
           setResult(result)
-          setIsPreviewLoading(false)
+          
+          // Update the version with the new result
+          if (app.fragmentVersions && app.fragmentVersions.length > 0) {
+            const updatedVersions = [...app.fragmentVersions]
+            const versionIndex = app.currentVersionIndex ?? app.fragmentVersions.length - 1
+            updatedVersions[versionIndex] = {
+              ...updatedVersions[versionIndex],
+              result
+            }
+            setFragmentVersions(updatedVersions)
+          }
           
           // Update the app with the new sandbox config
           appLibrary.saveApp({
             ...app,
             sandboxConfig: result,
             lastSandboxId: result.sbxId,
+            fragmentVersions: app.fragmentVersions && app.fragmentVersions.length > 0 ? fragmentVersions : undefined
           })
           
           // Update the last message with the result if it exists
@@ -464,33 +515,34 @@ function SimplifiedHomeContent() {
           }
         } catch (error) {
           console.error('Failed to create sandbox:', error)
-          setIsPreviewLoading(false)
           toast({
             title: 'Failed to load preview',
             description: 'Could not create sandbox for the app. The code is still available.',
             variant: 'destructive'
           })
+        } finally {
+          setIsPreviewLoading(false)
         }
-      }
-    }
-    
-    // If there's code and an existing sandbox ID, try to restore it
-    if (app.code && app.lastSandboxId && app.sandboxConfig) {
-      try {
-        const { sandbox } = await sandboxReconnectionManager.getOrCreateSandbox(
-          app.id,
-          app.lastSandboxId,
-          app.template
-        )
-        
-        // Write code to sandbox
-        if (sandbox && app.code.files) {
-          for (const file of app.code.files) {
-            await sandbox.files.write(file.path, file.content)
+      } else if (currentResult && currentResult.sbxId) {
+        // Try to restore existing sandbox
+        try {
+          const { sandbox, isNew } = await sandboxReconnectionManager.getOrCreateSandbox(
+            app.id,
+            currentResult.sbxId,
+            app.template
+          )
+          
+          if (isNew && currentFragment && currentFragment.files) {
+            // New sandbox created, need to write files
+            for (const file of currentFragment.files) {
+              await sandbox.files.write(file.path, file.content)
+            }
           }
+        } catch (error) {
+          console.error('Failed to restore sandbox:', error)
+          // Don't show error toast here, sandbox might just be expired
+          // The preview will still work, it will just create a new sandbox when needed
         }
-      } catch (error) {
-        console.error('Failed to restore sandbox:', error)
       }
     }
     
