@@ -49,7 +49,7 @@ export function ChatPicker({
   }
 
   // Filter out (direct) models
-  const filteredModels = models.filter(model => !model.provider.includes('(direct)'))
+  const filteredModels = models.filter(model => !model.name.includes('(Direct)'))
 
   // Get current model for logo display
   const currentModel = filteredModels.find(model => model.id === languageModel.model)
@@ -99,7 +99,7 @@ export function ChatPicker({
       <div className="flex flex-col">
         <Select
           name="languageModel"
-          defaultValue={languageModel.model}
+          value={languageModel.model}
           onValueChange={(e) => onLanguageModelChange({ model: e })}
         >
           <SelectTrigger className="whitespace-nowrap border-none shadow-none focus:ring-0 px-0 py-0 h-8 text-xs flex items-center gap-2">

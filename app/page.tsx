@@ -546,7 +546,7 @@ export default function SimplifiedHome() {
               onEditMessage={handleEditMessage}
             />
           </div>
-          <div className="border-t bg-background">
+          <div className="bg-background">
             <ChatInput
               retry={retry}
               isErrored={error !== undefined}

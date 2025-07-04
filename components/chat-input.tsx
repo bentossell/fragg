@@ -185,7 +185,7 @@ export function ChatInput({
             autoFocus={true}
             minRows={1}
             maxRows={5}
-            className="text-normal px-3 py-3 resize-none ring-0 bg-inherit w-full m-0 outline-none"
+            className="text-normal px-3 py-3 resize-none ring-0 bg-transparent w-full m-0 outline-none"
             required={true}
             placeholder="Describe your app..."
             disabled={isErrored}
