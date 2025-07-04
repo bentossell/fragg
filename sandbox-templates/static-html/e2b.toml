@@ -1,0 +1,11 @@
+# Static HTML Template for instant web app generation
+name = "static-html"
+start_cmd = "python -m http.server 3000"
+
+[build]
+dockerfile = "e2b.Dockerfile"
+
+# Pre-install common tools and dependencies
+[environment]
+NODE_VERSION = "18"
+PYTHON_VERSION = "3.11" 

@@ -22,7 +22,7 @@ import {
   TwitterLogoIcon,
 } from '@radix-ui/react-icons'
 import { Session } from '@supabase/supabase-js'
-import { ArrowRight, LogOut, Trash, Undo, Redo, Plus, FolderOpen } from 'lucide-react'
+import { ArrowRight, LogOut, Trash, Undo, Redo, Plus, FolderOpen, Zap } from 'lucide-react'
 import Link from 'next/link'
 
 export function NavBar({
@@ -68,6 +68,14 @@ export function NavBar({
             New App
           </Button>
         )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => window.location.href = '/real-time'}
+        >
+          <Zap className="h-4 w-4 mr-2" />
+          Real-Time Gen
+        </Button>
         <Button
           variant="outline"
           size="sm"

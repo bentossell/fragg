@@ -37,6 +37,5 @@ next-env.d.ts
 
 # fixes
 .fixes/
-
-# Allow Task Magic files
-!.ai/
+.plans/
+.ai/
