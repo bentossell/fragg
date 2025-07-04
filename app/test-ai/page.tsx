@@ -99,23 +99,31 @@ export default function TestAIPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="flex items-center gap-2">
                 <code className="bg-muted px-2 py-1 rounded text-sm">window.AI.models.fast</code>
-                <span className="text-sm">Claude 3 Haiku (fastest/cheapest)</span>
+                <span className="text-sm">Claude 3.5 Haiku (fastest/cheapest)</span>
               </div>
               <div className="flex items-center gap-2">
                 <code className="bg-muted px-2 py-1 rounded text-sm">window.AI.models.balanced</code>
-                <span className="text-sm">Claude 3.5 Sonnet (balanced)</span>
+                <span className="text-sm">Claude 3.7 Sonnet (balanced)</span>
               </div>
               <div className="flex items-center gap-2">
                 <code className="bg-muted px-2 py-1 rounded text-sm">window.AI.models.powerful</code>
-                <span className="text-sm">GPT-4 Turbo (most capable)</span>
+                <span className="text-sm">Claude Opus 4 (most capable)</span>
               </div>
               <div className="flex items-center gap-2">
                 <code className="bg-muted px-2 py-1 rounded text-sm">window.AI.models.cheap</code>
-                <span className="text-sm">Claude 3 Haiku :floor (absolute cheapest)</span>
+                <span className="text-sm">DeepSeek V3 (free)</span>
               </div>
               <div className="flex items-center gap-2">
                 <code className="bg-muted px-2 py-1 rounded text-sm">window.AI.models.turbo</code>
-                <span className="text-sm">Claude 3.5 Sonnet :nitro (fastest)</span>
+                <span className="text-sm">Gemini 2.5 Flash (fastest)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <code className="bg-muted px-2 py-1 rounded text-sm">window.AI.models.reasoning</code>
+                <span className="text-sm">OpenAI o3 (advanced reasoning)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <code className="bg-muted px-2 py-1 rounded text-sm">window.AI.models.reasoningMini</code>
+                <span className="text-sm">OpenAI o3 Mini (lightweight reasoning)</span>
               </div>
             </div>
           </CardContent>

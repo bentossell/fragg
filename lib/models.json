@@ -1,6 +1,34 @@
 {
   "models": [
     {
+      "id": "anthropic/claude-opus-4",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Claude Opus 4",
+      "multiModal": true
+    },
+    {
+      "id": "anthropic/claude-sonnet-4",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Claude Sonnet 4",
+      "multiModal": true
+    },
+    {
+      "id": "anthropic/claude-3.7-sonnet",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Claude 3.7 Sonnet",
+      "multiModal": true
+    },
+    {
+      "id": "anthropic/claude-3.7-sonnet:thinking",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Claude 3.7 Sonnet (Thinking)",
+      "multiModal": true
+    },
+    {
       "id": "anthropic/claude-3.5-sonnet",
       "provider": "OpenRouter",
       "providerId": "openrouter",
@@ -8,10 +36,10 @@
       "multiModal": true
     },
     {
-      "id": "anthropic/claude-3.5-sonnet:nitro",
+      "id": "anthropic/claude-3.5-haiku",
       "provider": "OpenRouter",
       "providerId": "openrouter",
-      "name": "Claude 3.5 Sonnet (Turbo)",
+      "name": "Claude 3.5 Haiku",
       "multiModal": true
     },
     {
@@ -36,18 +64,46 @@
       "multiModal": true
     },
     {
-      "id": "anthropic/claude-sonnet-4",
+      "id": "openai/o3-pro",
       "provider": "OpenRouter",
       "providerId": "openrouter",
-      "name": "Claude Sonnet 4",
-      "multiModal": true
+      "name": "OpenAI o3 Pro",
+      "multiModal": false
     },
     {
-      "id": "openai/gpt-4-turbo",
+      "id": "openai/o3",
       "provider": "OpenRouter",
       "providerId": "openrouter",
-      "name": "GPT-4 Turbo",
-      "multiModal": true
+      "name": "OpenAI o3",
+      "multiModal": false
+    },
+    {
+      "id": "openai/o3-mini",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "OpenAI o3 Mini",
+      "multiModal": false
+    },
+    {
+      "id": "openai/o1-pro",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "OpenAI o1 Pro",
+      "multiModal": false
+    },
+    {
+      "id": "openai/o1",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "OpenAI o1",
+      "multiModal": false
+    },
+    {
+      "id": "openai/o1-mini",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "OpenAI o1 Mini",
+      "multiModal": false
     },
     {
       "id": "openai/gpt-4o",
@@ -64,24 +120,129 @@
       "multiModal": true
     },
     {
+      "id": "openai/gpt-4-turbo",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "GPT-4 Turbo",
+      "multiModal": true
+    },
+    {
+      "id": "google/gemini-2.5-pro",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Gemini 2.5 Pro",
+      "multiModal": true
+    },
+    {
+      "id": "google/gemini-2.5-flash",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Gemini 2.5 Flash",
+      "multiModal": true
+    },
+    {
+      "id": "google/gemini-2.0-flash-001",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Gemini 2.0 Flash",
+      "multiModal": true
+    },
+    {
       "id": "google/gemini-pro-1.5",
       "provider": "OpenRouter",
       "providerId": "openrouter",
-      "name": "Gemini Pro 1.5",
+      "name": "Gemini 1.5 Pro",
       "multiModal": true
     },
     {
       "id": "google/gemini-flash-1.5",
       "provider": "OpenRouter",
       "providerId": "openrouter",
-      "name": "Gemini Flash 1.5",
+      "name": "Gemini 1.5 Flash",
       "multiModal": true
     },
     {
-      "id": "mistralai/mistral-large",
+      "id": "mistralai/magistral-medium-2506",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Mistral Magistral Medium",
+      "multiModal": false
+    },
+    {
+      "id": "mistralai/magistral-medium-2506:thinking",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Mistral Magistral Medium (Thinking)",
+      "multiModal": false
+    },
+    {
+      "id": "mistralai/magistral-small-2506",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Mistral Magistral Small",
+      "multiModal": false
+    },
+    {
+      "id": "mistralai/mistral-small-3.2-24b-instruct",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Mistral Small 3.2",
+      "multiModal": false
+    },
+    {
+      "id": "mistralai/mistral-large-2411",
       "provider": "OpenRouter",
       "providerId": "openrouter",
       "name": "Mistral Large",
+      "multiModal": false
+    },
+    {
+      "id": "mistralai/codestral-2501",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Mistral Codestral",
+      "multiModal": false
+    },
+    {
+      "id": "mistralai/pixtral-large-2411",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Mistral Pixtral Large",
+      "multiModal": true
+    },
+    {
+      "id": "meta-llama/llama-4-maverick",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Llama 4 Maverick",
+      "multiModal": false
+    },
+    {
+      "id": "meta-llama/llama-4-scout",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Llama 4 Scout",
+      "multiModal": false
+    },
+    {
+      "id": "meta-llama/llama-3.3-70b-instruct",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Llama 3.3 70B",
+      "multiModal": false
+    },
+    {
+      "id": "meta-llama/llama-3.2-90b-vision-instruct",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Llama 3.2 90B Vision",
+      "multiModal": true
+    },
+    {
+      "id": "meta-llama/llama-3.1-405b-instruct",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "Llama 3.1 405B",
       "multiModal": false
     },
     {
@@ -92,10 +253,24 @@
       "multiModal": false
     },
     {
-      "id": "meta-llama/llama-3.1-8b-instruct",
+      "id": "deepseek/deepseek-r1",
       "provider": "OpenRouter",
       "providerId": "openrouter",
-      "name": "Llama 3.1 8B",
+      "name": "DeepSeek R1",
+      "multiModal": false
+    },
+    {
+      "id": "deepseek/deepseek-r1-0528",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "DeepSeek R1 0528",
+      "multiModal": false
+    },
+    {
+      "id": "deepseek/deepseek-chat-v3-0324",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "DeepSeek V3 0324",
       "multiModal": false
     },
     {
@@ -103,6 +278,13 @@
       "provider": "OpenRouter",
       "providerId": "openrouter",
       "name": "DeepSeek V3",
+      "multiModal": false
+    },
+    {
+      "id": "deepseek/deepseek-r1-distill-llama-70b",
+      "provider": "OpenRouter",
+      "providerId": "openrouter",
+      "name": "DeepSeek R1 Distill Llama 70B",
       "multiModal": false
     },
     {

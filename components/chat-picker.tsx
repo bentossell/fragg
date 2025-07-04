@@ -7,11 +7,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
 import { LLMModel, LLMModelConfig } from '@/lib/models'
 import { TemplateId, Templates } from '@/lib/templates'
 import 'core-js/features/object/group-by.js'
-import { Sparkles } from 'lucide-react'
+import { Sparkles, Search, Brain } from 'lucide-react'
 import Image from 'next/image'
+import { useState, useEffect } from 'react'
 
 export function ChatPicker({
   templates,
@@ -28,6 +30,30 @@ export function ChatPicker({
   languageModel: LLMModelConfig
   onLanguageModelChange: (config: LLMModelConfig) => void
 }) {
+  // Avoid hydration issues by handling client-side only state
+  const [mounted, setMounted] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  // Check if a model is a reasoning model
+  const isReasoningModel = (model: LLMModel): boolean => {
+    const modelId = model.id.toLowerCase()
+    const modelName = model.name.toLowerCase()
+    return (
+      modelId.includes('o1') ||
+      modelId.includes('o3') ||
+      modelId.includes('thinking') ||
+      modelId.includes('reasoning') ||
+      modelName.includes('thinking') ||
+      modelName.includes('reasoning') ||
+      modelId.includes('deepseek-r1') ||
+      modelId.includes('magistral-medium-2506:thinking')
+    )
+  }
+
   // Map model IDs to the correct logo file
   const getModelLogo = (model: LLMModel | string) => {
     const modelId = typeof model === 'string' ? model.toLowerCase() : model.id.toLowerCase()
@@ -51,8 +77,20 @@ export function ChatPicker({
   // Filter out (direct) models
   const filteredModels = models.filter(model => !model.name.includes('(Direct)'))
 
+  // Apply search filter
+  const searchFilteredModels = filteredModels.filter(model =>
+    model.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    model.provider.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    model.id.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
+  // Set default model to Claude Sonnet 4 if no model is selected
+  const defaultModel = 'anthropic/claude-sonnet-4'
+  const effectiveModel = languageModel.model || defaultModel
+
   // Get current model for logo display
-  const currentModel = filteredModels.find(model => model.id === languageModel.model)
+  const currentModel = filteredModels.find(model => model.id === effectiveModel) || 
+                      filteredModels.find(model => model.id === defaultModel)
 
   return (
     <div className="flex items-center space-x-2">
@@ -99,43 +137,71 @@ export function ChatPicker({
       <div className="flex flex-col">
         <Select
           name="languageModel"
-          value={languageModel.model}
+          value={mounted ? effectiveModel : undefined}
           onValueChange={(e) => onLanguageModelChange({ model: e })}
         >
           <SelectTrigger className="whitespace-nowrap border-none shadow-none focus:ring-0 px-0 py-0 h-8 text-xs flex items-center gap-2">
-            {currentModel && (
-              <Image
-                className="flex"
-                src={`/thirdparty/logos/${getModelLogo(currentModel)}.svg`}
-                alt={currentModel.provider}
-                width={14}
-                height={14}
-              />
-            )}
-            <SelectValue placeholder="Language model" />
+            <SelectValue>
+              {mounted && currentModel && (
+                <div className="flex items-center space-x-2">
+                  <Image
+                    className="flex"
+                    src={`/thirdparty/logos/${getModelLogo(currentModel)}.svg`}
+                    alt={currentModel.provider}
+                    width={14}
+                    height={14}
+                  />
+                  <span>{currentModel.name}</span>
+                  {isReasoningModel(currentModel) && (
+                    <Brain className="w-3 h-3 text-purple-500" />
+                  )}
+                </div>
+              )}
+            </SelectValue>
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="max-h-[400px]">
+            <div className="sticky top-0 z-10 bg-background p-2 border-b">
+              <div className="relative">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search models..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-8 h-8 text-sm"
+                />
+              </div>
+            </div>
             {Object.entries(
-              Object.groupBy(filteredModels, ({ provider }) => provider),
+              Object.groupBy(searchFilteredModels, ({ provider }) => provider),
             ).map(([provider, models]) => (
               <SelectGroup key={provider}>
                 <SelectLabel>{provider}</SelectLabel>
                 {models?.map((model) => (
                   <SelectItem key={model.id} value={model.id}>
-                    <div className="flex items-center space-x-2">
-                      <Image
-                        className="flex"
-                        src={`/thirdparty/logos/${getModelLogo(model)}.svg`}
-                        alt={model.provider}
-                        width={14}
-                        height={14}
-                      />
-                      <span>{model.name}</span>
+                    <div className="flex items-center justify-between w-full">
+                      <div className="flex items-center space-x-2">
+                        <Image
+                          className="flex"
+                          src={`/thirdparty/logos/${getModelLogo(model)}.svg`}
+                          alt={model.provider}
+                          width={14}
+                          height={14}
+                        />
+                        <span>{model.name}</span>
+                      </div>
+                      {isReasoningModel(model) && (
+                        <Brain className="w-3 h-3 text-purple-500 ml-2" />
+                      )}
                     </div>
                   </SelectItem>
                 ))}
               </SelectGroup>
             ))}
+            {searchFilteredModels.length === 0 && (
+              <div className="p-4 text-center text-muted-foreground text-sm">
+                No models found matching "{searchTerm}"
+              </div>
+            )}
           </SelectContent>
         </Select>
       </div>

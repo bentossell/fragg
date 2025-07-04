@@ -13,19 +13,23 @@ export const openrouter = createOpenAI({
 // Model presets for different use cases
 export const models = {
   // Fast, cheap model for simple tasks
-  fast: 'anthropic/claude-3-haiku',
+  fast: 'anthropic/claude-3.5-haiku',
   
-  // Balanced model for app generation
+  // Balanced model for app generation (default)
   balanced: 'anthropic/claude-sonnet-4',
   
   // Powerful model for complex apps
-  powerful: 'openai/gpt-4-turbo',
+  powerful: 'anthropic/claude-opus-4',
   
   // Cost-optimized (routes to cheapest)
-  cheap: 'anthropic/claude-3-haiku:floor',
+  cheap: 'deepseek/deepseek-chat:free',
   
   // Speed-optimized (routes to fastest)
-  turbo: 'anthropic/claude-3.5-sonnet:nitro'
+  turbo: 'google/gemini-2.5-flash',
+  
+  // Reasoning models
+  reasoning: 'openai/o3',
+  reasoningMini: 'openai/o3-mini'
 }
 
 // Export specific model functions for convenience
@@ -34,6 +38,8 @@ export const balancedModel = () => openrouter(models.balanced)
 export const powerfulModel = () => openrouter(models.powerful)
 export const cheapModel = () => openrouter(models.cheap)
 export const turboModel = () => openrouter(models.turbo)
+export const reasoningModel = () => openrouter(models.reasoning)
+export const reasoningMiniModel = () => openrouter(models.reasoningMini)
 
 // Get model by ID (for compatibility with existing code)
 export function getModelById(modelId: string) {

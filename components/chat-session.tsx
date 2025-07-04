@@ -337,7 +337,7 @@ export function ChatSession({
             templates={templates}
             selectedTemplate={selectedTemplate}
             onSelectedTemplateChange={() => {}}
-            models={[]}
+            models={filteredModels}
             languageModel={languageModel}
             onLanguageModelChange={() => {}}
           />

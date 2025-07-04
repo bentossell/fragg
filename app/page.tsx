@@ -59,6 +59,9 @@ export default function SimplifiedHome() {
   const appLibrary = new AppLibrary()
   const messagesRef = useRef(messages)
   
+  // Add state for auto-save indicator
+  const [isAutoSaving, setIsAutoSaving] = useState(false)
+  
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
@@ -66,7 +69,7 @@ export default function SimplifiedHome() {
   const [languageModel, setLanguageModel] = useLocalStorage<LLMModelConfig>(
     'languageModel',
     {
-      model: 'anthropic/claude-3.5-sonnet-latest',
+      model: 'anthropic/claude-sonnet-4',
     },
   )
 
@@ -156,9 +159,85 @@ export default function SimplifiedHome() {
           setMessages(updated)
           addToHistory(updated, fragment, result)
         }
+        
+        // Auto-save the app when code is generated
+        setIsAutoSaving(true)
+        const firstUserMessage = currentMessages.find(m => m.role === 'user')
+        const userPrompt = firstUserMessage?.content[0]?.type === 'text' ? firstUserMessage.content[0].text : ''
+        
+        // Generate a name based on the user's prompt
+        const generatedName = appName || generateAppName(userPrompt)
+        
+        const savedApp = appLibrary.saveApp({
+          id: currentAppId || undefined,
+          name: generatedName,
+          description: userPrompt,
+          template: selectedTemplate === 'auto' ? 'auto' : selectedTemplate,
+          code: fragment,
+          messages: currentMessages
+            .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+            .map(msg => ({
+              id: crypto.randomUUID(),
+              role: msg.role as 'user' | 'assistant',
+              content: msg.content.map(c => c.type === 'text' ? c.text : '').join('\n'),
+              createdAt: new Date().toISOString(),
+            })),
+          lastSandboxId: result?.sbxId,
+          sandboxConfig: result,
+        })
+        
+        // Update app ID and name if it's a new app
+        if (!currentAppId) {
+          setCurrentAppId(savedApp.id)
+          setAppName(generatedName)
+        }
+        
+        // Show auto-save notification
+        setTimeout(() => {
+          setIsAutoSaving(false)
+          toast({
+            title: 'App auto-saved',
+            description: `Your app "${generatedName}" has been saved automatically.`,
+          })
+        }, 1000)
       }
     },
   })
+
+  // Helper function to generate app name from prompt
+  function generateAppName(prompt: string): string {
+    // Extract key words from the prompt
+    const words = prompt.toLowerCase().split(' ')
+    
+    // Common app-related keywords to look for
+    const appKeywords = ['app', 'application', 'tool', 'calculator', 'generator', 'converter', 'manager', 'dashboard', 'tracker', 'game', 'quiz', 'form']
+    const actionKeywords = ['create', 'build', 'make', 'generate', 'design', 'develop']
+    
+    // Remove action keywords and common words
+    const filteredWords = words.filter(word => 
+      !actionKeywords.includes(word) && 
+      !['a', 'an', 'the', 'with', 'that', 'for', 'to', 'of', 'in', 'on', 'at', 'by'].includes(word) &&
+      word.length > 2
+    )
+    
+    // Find app type keyword
+    const appType = words.find(word => appKeywords.includes(word))
+    
+    // Generate name based on what we found
+    if (filteredWords.length > 0) {
+      const mainWords = filteredWords.slice(0, 3).map(word => 
+        word.charAt(0).toUpperCase() + word.slice(1)
+      ).join(' ')
+      
+      if (appType && !mainWords.toLowerCase().includes(appType)) {
+        return `${mainWords} ${appType.charAt(0).toUpperCase() + appType.slice(1)}`
+      }
+      return mainWords
+    }
+    
+    // Fallback name
+    return `App ${new Date().toLocaleDateString()}`
+  }
 
   // Version navigation functions
   const navigateToVersion = useCallback((index: number) => {
@@ -258,12 +337,13 @@ export default function SimplifiedHome() {
             })),
           code: fragment,
           template: selectedTemplate === 'auto' ? 'auto' : selectedTemplate,
+          sandboxConfig: result,
         })
       }
     }, 30000) // Auto-save every 30 seconds
     
     return () => clearInterval(saveInterval)
-  }, [currentAppId, messages, fragment, selectedTemplate])
+  }, [currentAppId, messages, fragment, selectedTemplate, result])
 
   const handleNewApp = useCallback(async () => {
     // Close current sandbox
@@ -310,6 +390,7 @@ export default function SimplifiedHome() {
           createdAt: new Date().toISOString(),
         })),
       lastSandboxId: result?.sbxId,
+      sandboxConfig: result,
     })
     
     setCurrentAppId(savedApp.id)
@@ -590,6 +671,7 @@ export default function SimplifiedHome() {
           currentVersionIndex={currentVersionIndex}
           onPreviousVersion={goToPreviousVersion}
           onNextVersion={goToNextVersion}
+          isAutoSaving={isAutoSaving}
         />
       </div>
     </main>

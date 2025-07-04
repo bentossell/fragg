@@ -10,8 +10,6 @@ import {
   Calendar, 
   MessageSquare, 
   Trash2, 
-  Download,
-  Upload,
   FolderOpen,
   Plus
 } from 'lucide-react'
@@ -38,49 +36,6 @@ export default function LibraryPage() {
         description: 'The app has been removed from your library.',
       })
     }
-  }
-  
-  const handleExport = () => {
-    const data = appLibrary.exportApps()
-    const blob = new Blob([data], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `fragg-apps-${new Date().toISOString().split('T')[0]}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-    
-    toast({
-      title: 'Apps exported',
-      description: 'Your apps have been exported to a JSON file.',
-    })
-  }
-  
-  const handleImport = () => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.json'
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0]
-      if (!file) return
-      
-      try {
-        const text = await file.text()
-        appLibrary.importApps(text)
-        loadApps()
-        toast({
-          title: 'Apps imported',
-          description: 'Your apps have been imported successfully.',
-        })
-      } catch (error) {
-        toast({
-          title: 'Import failed',
-          description: 'Failed to import apps. Please check the file format.',
-          variant: 'destructive',
-        })
-      }
-    }
-    input.click()
   }
   
   const handleOpenApp = (app: SavedApp) => {
@@ -126,23 +81,6 @@ export default function LibraryPage() {
             >
               <Plus className="h-4 w-4 mr-2" />
               New App
-            </Button>
-            
-            <Button
-              onClick={handleExport}
-              variant="outline"
-              disabled={apps.length === 0}
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
-            
-            <Button
-              onClick={handleImport}
-              variant="outline"
-            >
-              <Upload className="h-4 w-4 mr-2" />
-              Import
             </Button>
           </div>
         </div>

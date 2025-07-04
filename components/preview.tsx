@@ -39,6 +39,7 @@ export function Preview({
   currentVersionIndex,
   onPreviousVersion,
   onNextVersion,
+  isAutoSaving,
 }: {
   teamID: string | undefined
   accessToken: string | undefined
@@ -57,6 +58,7 @@ export function Preview({
   currentVersionIndex?: number
   onPreviousVersion?: () => void
   onNextVersion?: () => void
+  isAutoSaving?: boolean
 }) {
   const [isEditingName, setIsEditingName] = useState(false)
   const [editingName, setEditingName] = useState(appName || '')
@@ -169,6 +171,12 @@ export function Preview({
             )}
           </div>
           <div className="flex items-center justify-end gap-2">
+            {isAutoSaving && (
+              <div className="flex items-center gap-1 px-2 py-1 bg-muted rounded-md animate-pulse">
+                <LoaderCircle className="h-3 w-3 animate-spin text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Auto-saving...</span>
+              </div>
+            )}
             {onAppNameChange && (
               <div className="flex items-center gap-1 group relative">
                 {isEditingName ? (
