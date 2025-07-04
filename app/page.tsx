@@ -537,8 +537,8 @@ export default function SimplifiedHome() {
       />
       
       <div className="flex-1 grid w-full md:grid-cols-2 overflow-hidden">
-        <div className={`flex flex-col w-full h-full max-w-[800px] mx-auto px-4 ${fragment ? 'col-span-1' : 'col-span-2'}`}>
-          <div className="flex-1 overflow-y-auto">
+        <div className={`flex flex-col w-full h-full max-w-[800px] mx-auto px-4 overflow-hidden ${fragment ? 'col-span-1' : 'col-span-2'}`}>
+          <div className="flex-1 overflow-y-auto min-h-0 pb-2">
             <Chat
               messages={messages}
               isLoading={isLoading}
@@ -546,7 +546,7 @@ export default function SimplifiedHome() {
               onEditMessage={handleEditMessage}
             />
           </div>
-          <div className="bg-background">
+          <div className="flex-shrink-0 bg-background">
             <ChatInput
               retry={retry}
               isErrored={error !== undefined}
