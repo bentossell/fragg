@@ -2,6 +2,7 @@ import { FragmentSchema } from '@/lib/schema'
 import { ExecutionResultInterpreter, ExecutionResultWeb } from '@/lib/types'
 import { Sandbox } from '@e2b/code-interpreter'
 import { injectAI } from '@/lib/inject-ai'
+import { singleActiveSandboxManager } from '@/lib/sandbox/single-active-manager'
 
 const sandboxTimeout = 10 * 60 * 1000 // 10 minute in ms
 
@@ -13,14 +14,17 @@ export async function POST(req: Request) {
     userID,
     teamID,
     accessToken,
+    sessionId,
   }: {
     fragment: FragmentSchema
     userID: string | undefined
     teamID: string | undefined
     accessToken: string | undefined
+    sessionId?: string
   } = await req.json()
   console.log('fragment', fragment)
   console.log('userID', userID)
+  console.log('sessionId', sessionId)
   // console.log('apiKey', apiKey)
 
   // Create an interpreter or a sandbox
@@ -29,6 +33,7 @@ export async function POST(req: Request) {
       template: fragment.template,
       userID: userID ?? '',
       teamID: teamID ?? '',
+      sessionId: sessionId ?? '',
     },
     timeoutMs: sandboxTimeout,
     ...(teamID && accessToken
@@ -40,6 +45,11 @@ export async function POST(req: Request) {
         }
       : {}),
   })
+
+  // Register this sandbox as the active one if sessionId provided
+  if (sessionId) {
+    await singleActiveSandboxManager.setActiveSandbox(sessionId, sbx)
+  }
 
   // Install packages
   if (fragment.has_additional_dependencies) {

@@ -129,10 +129,12 @@ We are following the incremental MVP plan from `.plans/plan-mvp.md` with these s
 - Test page available at `/test-ai` with examples
 - **Architecture Fix**: Sandboxes now call OpenRouter API directly instead of localhost proxy
 
-### Stage 3: Database Integration  
-- Minimal Supabase setup
-- Simple app storage functionality
-- "My Apps" page
+### Stage 3: Local Performance & Chat Sessions (REVISED - Local First!)
+- localStorage-based session management (no database needed)  
+- ChatGPT-style sidebar for switching between chat sessions
+- Persistent sandbox connections to prevent "sandbox not found" errors
+- "My Apps" stored locally with export/import capability
+- Incremental code updates for faster edits
 
 ### Stage 4: Auth & Real Database
 - Add Supabase authentication
@@ -170,7 +172,31 @@ Use the Context7 MCP to find documentation:
 - Useful for: Next.js, Supabase, Vercel AI SDK, etc.
 
 ## Current Focus
-We are implementing the MVP plan stage by stage. Completed: Stage 1 (Basic Local Setup) and Stage 2 (AI SDK in Apps). Next: Stage 3 (Database Integration).
+We are implementing a local-first MVP approach. Completed: Stage 1 (Basic Local Setup) and Stage 2 (AI SDK in Apps). Current: Stage 3 (Local Performance & Chat Sessions).
+
+**NEW APPROACH**: Focusing on exceptional local experience first - fast app generation, persistent chat sessions, and smooth editing without requiring authentication or database setup. See `.plans/plan-mvp-local-first.md` for details.
+
+## Performance Optimization Strategy
+
+Based on `.plans/app-speed.md`, we have identified three major performance improvements that will be integrated into our roadmap:
+
+### Immediate (During Stage 3 - Local First)
+- Implement localStorage-based chat sessions (no Supabase needed)
+- Add ChatGPT-style sidebar for session management
+- Implement sandbox reconnection to prevent "sandbox not found" errors
+- Store sandbox_id with each chat session locally
+
+### Near-term (After MVP Stage 4)
+- Implement sandbox reconnection using stored sandbox_ids
+- Add ChatGPT-style sidebar for session management
+- Enable incremental code updates (diffs) instead of full rewrites
+
+### Long-term (Post-MVP)
+- **Sandbox Pooling**: Pre-warm sandboxes for <10 second generation
+- **CDN Strategy**: Load React/Vue from CDN for 2-5 second apps
+- **Edge Caching**: Cache popular templates for instant delivery
+
+This phased approach maintains MVP momentum while laying groundwork for significant performance improvements.
 
 ## Stage Verification Process
 

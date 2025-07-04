@@ -581,3 +581,399 @@ export async function GET(request: Request) {
     processed: schedules?.length || 0 
   })
 }
+
+Phase 6: Performance Optimization
+Task 6.1: Implement Chat Sessions Foundation
+Subtasks:
+
+Add chat sessions tables to database schema
+sql-- Add to existing migration or create new one
+-- Chat sessions table
+CREATE TABLE chat_sessions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  sandbox_id TEXT,
+  template TEXT,
+  last_code TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Chat messages table
+CREATE TABLE chat_messages (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  session_id UUID REFERENCES chat_sessions(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE chat_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies
+CREATE POLICY "Users can manage their own sessions" ON chat_sessions
+  FOR ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can view their messages" ON chat_messages
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM chat_sessions 
+      WHERE chat_sessions.id = chat_messages.session_id 
+      AND chat_sessions.user_id = auth.uid()
+    )
+  );
+
+Implement session persistence
+typescript// lib/chat/session-manager.ts
+export class SessionManager {
+  constructor(private supabase: SupabaseClient) {}
+  
+  async createSession(userId: string, title: string) {
+    const { data, error } = await this.supabase
+      .from('chat_sessions')
+      .insert({ user_id: userId, title })
+      .select()
+      .single()
+    
+    if (error) throw error
+    return data
+  }
+  
+  async updateSession(sessionId: string, updates: {
+    sandbox_id?: string
+    template?: string
+    last_code?: string
+  }) {
+    const { error } = await this.supabase
+      .from('chat_sessions')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', sessionId)
+    
+    if (error) throw error
+  }
+  
+  async reconnectSandbox(sessionId: string): Promise<Sandbox | null> {
+    const { data: session } = await this.supabase
+      .from('chat_sessions')
+      .select('sandbox_id')
+      .eq('id', sessionId)
+      .single()
+    
+    if (!session?.sandbox_id) return null
+    
+    try {
+      return await Sandbox.reconnect(session.sandbox_id)
+    } catch (error) {
+      // Sandbox no longer exists, clear it
+      await this.updateSession(sessionId, { sandbox_id: null })
+      return null
+    }
+  }
+}
+
+Add ChatGPT-style sidebar UI
+typescript// components/chat/ChatSidebar.tsx
+export function ChatSidebar({ sessions, currentSessionId, onSelectSession }) {
+  return (
+    <div className="w-64 border-r bg-muted/10 h-full">
+      <div className="p-4">
+        <Button 
+          className="w-full" 
+          onClick={() => onSelectSession(null)}
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          New Chat
+        </Button>
+      </div>
+      
+      <ScrollArea className="flex-1">
+        <div className="px-2 py-1">
+          {sessions.map((session) => (
+            <button
+              key={session.id}
+              onClick={() => onSelectSession(session.id)}
+              className={cn(
+                "w-full text-left px-3 py-2 rounded-md mb-1",
+                "hover:bg-muted transition-colors",
+                currentSessionId === session.id && "bg-muted"
+              )}
+            >
+              <div className="font-medium truncate">{session.title}</div>
+              <div className="text-xs text-muted-foreground">
+                {formatRelativeTime(session.updated_at)}
+              </div>
+            </button>
+          ))}
+        </div>
+      </ScrollArea>
+    </div>
+  )
+}
+
+Task 6.2: Implement Sandbox Pooling
+Subtasks:
+
+Create sandbox pool manager
+typescript// lib/sandbox/pool.ts
+export class SandboxPool {
+  private pools = new Map<string, Sandbox[]>()
+  private poolSize = 3
+  private refillInProgress = new Set<string>()
+  
+  async initialize(templates: string[]) {
+    // Pre-warm pools on startup
+    await Promise.all(
+      templates.map(template => this.fillPool(template))
+    )
+  }
+  
+  async getSandbox(template: string): Promise<Sandbox> {
+    const pool = this.pools.get(template) || []
+    let sandbox = pool.shift()
+    
+    if (!sandbox) {
+      // No warm sandbox available, create one
+      sandbox = await this.createSandbox(template)
+    }
+    
+    // Refill pool in background
+    if (pool.length < this.poolSize) {
+      this.refillPool(template)
+    }
+    
+    return sandbox
+  }
+  
+  private async refillPool(template: string) {
+    if (this.refillInProgress.has(template)) return
+    
+    this.refillInProgress.add(template)
+    
+    try {
+      const pool = this.pools.get(template) || []
+      const needed = this.poolSize - pool.length
+      
+      const promises = Array(needed)
+        .fill(null)
+        .map(() => this.createSandbox(template))
+      
+      const newSandboxes = await Promise.all(promises)
+      pool.push(...newSandboxes)
+      this.pools.set(template, pool)
+    } finally {
+      this.refillInProgress.delete(template)
+    }
+  }
+  
+  async shutdown() {
+    // Clean up all sandboxes
+    for (const [template, pool] of this.pools) {
+      await Promise.all(pool.map(s => s.close()))
+    }
+    this.pools.clear()
+  }
+}
+
+Implement parallel processing
+typescript// app/api/chat/route.ts
+export async function POST(req: Request) {
+  const { messages, template, sessionId } = await req.json()
+  
+  // Start both operations in parallel
+  const [streamResult, sandbox] = await Promise.all([
+    // Start AI generation immediately
+    streamText({
+      model: openrouter(model),
+      messages,
+      system: generateSystemPrompt(template)
+    }),
+    // Get sandbox from pool or reconnect
+    sessionId 
+      ? sessionManager.reconnectSandbox(sessionId)
+      : sandboxPool.getSandbox(template)
+  ])
+  
+  // Process stream and update sandbox incrementally
+  return new StreamingTextResponse(
+    streamResult.stream.pipeThrough(
+      new TransformStream({
+        async transform(chunk, controller) {
+          controller.enqueue(chunk)
+          
+          // Apply incremental updates to sandbox
+          if (chunk.type === 'code-delta') {
+            await sandbox.applyDelta(chunk.delta)
+          }
+        }
+      })
+    )
+  )
+}
+
+Task 6.3: Implement CDN-First Approach
+Subtasks:
+
+Create CDN templates
+typescript// lib/templates/cdn-templates.ts
+export const cdnTemplates = {
+  react: {
+    html: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{title}}</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  {{#if useTailwind}}
+  <script src="https://cdn.tailwindcss.com"></script>
+  {{/if}}
+  {{#each cdnLibraries}}
+  <script src="{{this.url}}"></script>
+  {{/each}}
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    {{code}}
+  </script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</body>
+</html>`,
+    defaultLibraries: [
+      { name: 'axios', url: 'https://unpkg.com/axios/dist/axios.min.js' },
+      { name: 'lodash', url: 'https://unpkg.com/lodash@4/lodash.min.js' }
+    ]
+  },
+  vue: {
+    // Similar structure for Vue
+  }
+}
+
+Implement smart dependency resolution
+typescript// lib/cdn/dependency-resolver.ts
+export class DependencyResolver {
+  private cdnRegistry = new Map<string, string>([
+    ['react', 'https://unpkg.com/react@18/umd/react.production.min.js'],
+    ['react-dom', 'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js'],
+    ['vue', 'https://unpkg.com/vue@3/dist/vue.global.prod.js'],
+    ['axios', 'https://unpkg.com/axios/dist/axios.min.js'],
+    ['lodash', 'https://unpkg.com/lodash@4/lodash.min.js'],
+    ['moment', 'https://unpkg.com/moment@2/moment.min.js'],
+    ['chart.js', 'https://unpkg.com/chart.js@4/dist/chart.umd.js'],
+    // Add more popular libraries
+  ])
+  
+  resolveDependencies(code: string): {
+    cdn: string[],
+    npm: string[]
+  } {
+    const imports = this.extractImports(code)
+    const cdn: string[] = []
+    const npm: string[] = []
+    
+    for (const pkg of imports) {
+      if (this.cdnRegistry.has(pkg)) {
+        cdn.push(this.cdnRegistry.get(pkg)!)
+      } else {
+        npm.push(pkg)
+      }
+    }
+    
+    return { cdn, npm }
+  }
+  
+  private extractImports(code: string): string[] {
+    const importRegex = /import\s+.*?\s+from\s+['"]([^'"]+)['"]/g
+    const requireRegex = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g
+    
+    const imports = new Set<string>()
+    
+    let match
+    while ((match = importRegex.exec(code)) !== null) {
+      imports.add(match[1])
+    }
+    
+    while ((match = requireRegex.exec(code)) !== null) {
+      imports.add(match[1])
+    }
+    
+    return Array.from(imports)
+  }
+}
+
+Task 6.4: Implement Edge Caching
+Subtasks:
+
+Create edge-cached app templates
+typescript// lib/edge-cache/template-cache.ts
+export class TemplateCache {
+  private cache = new Map<string, CachedTemplate>()
+  private popularTemplates = [
+    'react-todo-app',
+    'vue-dashboard',
+    'nextjs-blog',
+    'streamlit-data-viz'
+  ]
+  
+  async warmCache() {
+    // Pre-generate popular templates
+    for (const templateId of this.popularTemplates) {
+      const template = await this.generateTemplate(templateId)
+      this.cache.set(templateId, {
+        content: template,
+        timestamp: Date.now(),
+        hits: 0
+      })
+    }
+  }
+  
+  async getTemplate(templateId: string): Promise<string | null> {
+    const cached = this.cache.get(templateId)
+    
+    if (cached && this.isValid(cached)) {
+      cached.hits++
+      return cached.content
+    }
+    
+    return null
+  }
+  
+  private isValid(cached: CachedTemplate): boolean {
+    const age = Date.now() - cached.timestamp
+    const maxAge = 24 * 60 * 60 * 1000 // 24 hours
+    return age < maxAge
+  }
+}
+
+Add performance monitoring
+typescript// lib/monitoring/performance.ts
+export class PerformanceMonitor {
+  async trackGeneration(metrics: {
+    template: string
+    generationTime: number
+    sandboxTime: number
+    method: 'pooled' | 'fresh' | 'cdn'
+  }) {
+    // Send to analytics
+    await analytics.track('app_generation', {
+      ...metrics,
+      totalTime: metrics.generationTime + metrics.sandboxTime
+    })
+    
+    // Update rolling averages
+    await this.updateAverages(metrics)
+  }
+  
+  async getMetrics() {
+    return {
+      avgGenerationTime: await this.getAverage('generation'),
+      avgSandboxTime: await this.getAverage('sandbox'),
+      p95GenerationTime: await this.getPercentile('generation', 95),
+      successRate: await this.getSuccessRate()
+    }
+  }
+}

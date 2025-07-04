@@ -72,34 +72,126 @@ export const injectAI = (code: string) => {
   return code;
 };
 Test by generating an app that uses window.AI.ask().
-Stage 3: Database Integration (Days 6-8)
-Step 3.1: Minimal Supabase Setup
-bash# Install Supabase
-npm install @supabase/supabase-js @supabase/ssr
+Stage 3: Local Performance & Chat Sessions (Days 6-8) - REVISED FOR LOCAL-FIRST
 
-# Add to .env.local
-NEXT_PUBLIC_SUPABASE_URL=your-url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-Step 3.2: Simple App Storage
-Start with just saving generated apps:
-typescript// app/api/apps/save/route.ts
-import { createClient } from '@/utils/supabase/server'
+**NEW APPROACH**: Skip database setup and focus on exceptional local experience with fast app generation, persistent chat sessions, and smooth editing.
 
-export async function POST(req: Request) {
-  const { name, code, framework } = await req.json()
+Step 3.1: localStorage Session Management
+typescript// lib/storage/local-sessions.ts
+export class LocalSessionManager {
+  private readonly SESSIONS_KEY = 'fragg_sessions'
+  private readonly MESSAGES_KEY = 'fragg_messages'
   
-  // For now, store in localStorage
-  const mockApp = {
-    id: Date.now().toString(),
-    name,
-    code,
-    framework,
-    created_at: new Date().toISOString()
+  getSessions(): ChatSession[] {
+    const data = localStorage.getItem(this.SESSIONS_KEY)
+    return data ? JSON.parse(data) : []
   }
   
-  return Response.json(mockApp)
+  createSession(title: string): ChatSession {
+    const session: ChatSession = {
+      id: crypto.randomUUID(),
+      title,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+    
+    const sessions = this.getSessions()
+    sessions.unshift(session)
+    localStorage.setItem(this.SESSIONS_KEY, JSON.stringify(sessions))
+    
+    return session
+  }
+  
+  updateSession(id: string, updates: Partial<ChatSession>) {
+    const sessions = this.getSessions()
+    const index = sessions.findIndex(s => s.id === id)
+    
+    if (index !== -1) {
+      sessions[index] = {
+        ...sessions[index],
+        ...updates,
+        updatedAt: new Date().toISOString()
+      }
+      localStorage.setItem(this.SESSIONS_KEY, JSON.stringify(sessions))
+    }
+  }
 }
-Step 3.3: Add "My Apps" Page
+Step 3.2: ChatGPT-style Sidebar
+Implement session management UI:
+typescript// components/chat/chat-sidebar.tsx
+export function ChatSidebar({ currentSessionId, onSelectSession, onNewSession }) {
+  const [sessions, setSessions] = useState<ChatSession[]>([])
+  const sessionManager = new LocalSessionManager()
+  
+  useEffect(() => {
+    setSessions(sessionManager.getSessions())
+  }, [currentSessionId])
+  
+  return (
+    <div className="w-64 border-r bg-muted/10 h-full flex flex-col">
+      <div className="p-4">
+        <Button className="w-full" onClick={onNewSession}>
+          <Plus className="mr-2 h-4 w-4" />
+          New Chat
+        </Button>
+      </div>
+      
+      <ScrollArea className="flex-1">
+        <div className="px-2 py-1">
+          {sessions.map((session) => (
+            <button
+              key={session.id}
+              onClick={() => onSelectSession(session.id)}
+              className={cn(
+                "w-full text-left px-3 py-2 rounded-md mb-1",
+                "hover:bg-muted transition-colors",
+                currentSessionId === session.id && "bg-muted"
+              )}
+            >
+              <div className="font-medium truncate">{session.title}</div>
+              <div className="text-xs text-muted-foreground">
+                {formatRelativeTime(session.updatedAt)}
+              </div>
+            </button>
+          ))}
+        </div>
+      </ScrollArea>
+    </div>
+  )
+}
+Step 3.3: Sandbox Reconnection
+Prevent "sandbox not found" errors:
+
+```typescript
+// lib/sandbox/reconnect.ts
+export class SandboxReconnectionManager {
+  async getOrCreateSandbox(
+    sessionId: string,
+    sandboxId: string | undefined,
+    template: string
+  ): Promise<{ sandbox: Sandbox, isNew: boolean }> {
+    // Try to reconnect to existing sandbox
+    if (sandboxId) {
+      try {
+        const sandbox = await Sandbox.reconnect(sandboxId)
+        console.log('Reconnected to existing sandbox:', sandboxId)
+        return { sandbox, isNew: false }
+      } catch (error) {
+        console.log('Failed to reconnect, creating new sandbox')
+      }
+    }
+    
+    // Create new sandbox
+    const sandbox = await Sandbox.create(template, {
+      metadata: { sessionId }
+    })
+    
+    return { sandbox, isNew: true }
+  }
+}
+```
+
+Step 3.4: Local "My Apps" Storage
 typescript// app/apps/page.tsx
 'use client'
 
@@ -109,10 +201,24 @@ export default function MyAppsPage() {
   const [apps, setApps] = useState([])
   
   useEffect(() => {
-    // Start with localStorage
-    const savedApps = JSON.parse(localStorage.getItem('my-apps') || '[]')
-    setApps(savedApps)
+    // Load apps from localStorage
+    const savedApps = localStorage.getItem('fragg_apps')
+    if (savedApps) {
+      setApps(JSON.parse(savedApps))
+    }
   }, [])
+  
+  return (
+    <div className="container mx-auto p-4">
+      <h1 className="text-2xl font-bold mb-4">My Apps</h1>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {apps.map((app) => (
+          <AppCard key={app.id} app={app} />
+        ))}
+      </div>
+    </div>
+  )
+}
   
   return (
     <div className="container mx-auto p-4">
@@ -359,3 +465,15 @@ test('create and run app', async ({ page }) => {
   await page.click('[data-testid="save-app"]')
   await expect(page).toHaveURL(/\/apps\/[\w-]+/)
 })
+
+## Summary of Local-First Approach
+
+The revised Stage 3 focuses on creating an exceptional local experience without requiring any database setup:
+
+1. **Chat Sessions**: Persistent across refreshes using localStorage
+2. **Sidebar Navigation**: ChatGPT-style UI for managing multiple projects
+3. **Sandbox Persistence**: Reconnect to existing sandboxes, no more "not found" errors
+4. **Local App Storage**: Save and manage apps without Supabase
+5. **Fast Performance**: All data operations are instant
+
+This approach lets you build and test the core experience locally. When ready for multi-device sync or sharing features, you can easily migrate to Supabase in Stage 4.

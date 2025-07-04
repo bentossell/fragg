@@ -22,7 +22,7 @@ import {
   TwitterLogoIcon,
 } from '@radix-ui/react-icons'
 import { Session } from '@supabase/supabase-js'
-import { ArrowRight, LogOut, Trash, Undo } from 'lucide-react'
+import { ArrowRight, LogOut, Trash, Undo, Redo, Plus, FolderOpen } from 'lucide-react'
 import Link from 'next/link'
 
 export function NavBar({
@@ -34,6 +34,9 @@ export function NavBar({
   onSocialClick,
   onUndo,
   canUndo,
+  onNewChat,
+  onRedo,
+  canRedo,
 }: {
   session: Session | null
   showLogin: () => void
@@ -43,23 +46,38 @@ export function NavBar({
   onSocialClick: (target: 'github' | 'x' | 'discord') => void
   onUndo: () => void
   canUndo: boolean
+  onNewChat?: () => void
+  onRedo?: () => void
+  canRedo?: boolean
 }) {
   return (
-    <nav className="w-full flex bg-background py-4">
+    <nav className="w-full flex bg-background py-4 px-4">
       <div className="flex flex-1 items-center">
         <Link href="/" className="flex items-center gap-2" target="_blank">
           <Logo width={24} height={24} />
-          <h1 className="whitespace-pre">Fragments by </h1>
-        </Link>
-        <Link
-          href="https://e2b.dev"
-          className="underline decoration-[rgba(229,123,0,.3)] decoration-2 text-[#ff8800]"
-          target="_blank"
-        >
-          E2B
         </Link>
       </div>
-      <div className="flex items-center gap-1 md:gap-4">
+      <div className="flex items-center gap-2">
+        {onNewChat && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onNewChat}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            New App
+          </Button>
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => window.location.href = '/library'}
+        >
+          <FolderOpen className="h-4 w-4 mr-2" />
+          My Library
+        </Button>
+      </div>
+      <div className="flex flex-1 items-center justify-end gap-1 md:gap-4">
         <TooltipProvider>
           <Tooltip delayDuration={0}>
             <TooltipTrigger asChild>
@@ -75,6 +93,23 @@ export function NavBar({
             <TooltipContent>Undo</TooltipContent>
           </Tooltip>
         </TooltipProvider>
+        {onRedo && (
+          <TooltipProvider>
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onRedo}
+                  disabled={!canRedo}
+                >
+                  <Redo className="h-4 w-4 md:h-5 md:w-5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Redo</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
         <TooltipProvider>
           <Tooltip delayDuration={0}>
             <TooltipTrigger asChild>

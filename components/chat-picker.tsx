@@ -28,9 +28,29 @@ export function ChatPicker({
   languageModel: LLMModelConfig
   onLanguageModelChange: (config: LLMModelConfig) => void
 }) {
+  // Map model IDs to the correct logo file
+  const getModelLogo = (model: LLMModel) => {
+    const modelId = model.id.toLowerCase()
+    if (modelId.includes('anthropic') || modelId.includes('claude')) return 'anthropic'
+    if (modelId.includes('openai') || modelId.includes('gpt')) return 'openai'
+    if (modelId.includes('google') || modelId.includes('gemini')) return 'google'
+    if (modelId.includes('meta') || modelId.includes('llama')) return 'ollama'
+    if (modelId.includes('mistral')) return 'mistral'
+    if (modelId.includes('deepseek')) return 'deepseek'
+    if (modelId.includes('groq')) return 'groq'
+    if (modelId.includes('fireworks')) return 'fireworks'
+    if (modelId.includes('together')) return 'togetherai'
+    if (modelId.includes('xai') || modelId.includes('grok')) return 'xai'
+    if (modelId.includes('vertex')) return 'vertex'
+    
+    // Default fallback
+    if (model.providerId === 'openrouter') return 'openai'
+    return model.providerId
+  }
+
   return (
     <div className="flex items-center space-x-2">
-      <div className="flex flex-col">
+      {/* <div className="flex flex-col">
         <Select
           name="template"
           defaultValue={selectedTemplate}
@@ -69,14 +89,14 @@ export function ChatPicker({
             </SelectGroup>
           </SelectContent>
         </Select>
-      </div>
+      </div> */}
       <div className="flex flex-col">
         <Select
           name="languageModel"
           defaultValue={languageModel.model}
           onValueChange={(e) => onLanguageModelChange({ model: e })}
         >
-          <SelectTrigger className="whitespace-nowrap border-none shadow-none focus:ring-0 px-0 py-0 h-6 text-xs">
+          <SelectTrigger className="whitespace-nowrap border-none shadow-none focus:ring-0 px-0 py-0 h-8 text-xs">
             <SelectValue placeholder="Language model" />
           </SelectTrigger>
           <SelectContent>
@@ -90,7 +110,7 @@ export function ChatPicker({
                     <div className="flex items-center space-x-2">
                       <Image
                         className="flex"
-                        src={`/thirdparty/logos/${model.providerId}.svg`}
+                        src={`/thirdparty/logos/${getModelLogo(model)}.svg`}
                         alt={model.provider}
                         width={14}
                         height={14}

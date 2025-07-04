@@ -181,7 +181,6 @@ export function ChatInput({
               : ''
           }`}
         >
-          <div className="flex items-center px-3 py-2 gap-1">{children}</div>
           <TextareaAutosize
             autoFocus={true}
             minRows={1}
@@ -225,6 +224,7 @@ export function ChatInput({
                   <TooltipContent>Add attachments</TooltipContent>
                 </Tooltip>
               </TooltipProvider>
+              {children}
               {files.length > 0 && filePreview}
             </div>
             <div>
@@ -269,12 +269,6 @@ export function ChatInput({
           </div>
         </div>
       </div>
-      <p className="text-xs text-muted-foreground mt-2 text-center">
-        Fragments is an open-source project made by{' '}
-        <a href="https://e2b.dev" target="_blank" className="text-[#ff8800]">
-          ✶ E2B
-        </a>
-      </p>
     </form>
   )
 }
