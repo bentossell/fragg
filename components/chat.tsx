@@ -117,7 +117,10 @@ export function Chat({
                     return (
                       <span 
                         key={id} 
-                        className={message.role === 'assistant' ? 'animate-in fade-in duration-500' : ''}
+                        className={message.role === 'assistant' ? 'animate-text' : ''}
+                        style={message.role === 'assistant' ? {
+                          animationDelay: `${id * 50}ms`
+                        } : {}}
                       >
                         {content.text}
                       </span>
@@ -145,7 +148,7 @@ export function Chat({
                     result: message.result,
                   })
                 }
-                className="py-2 pl-2 w-full md:w-max flex items-center border rounded-xl select-none hover:bg-white dark:hover:bg-white/5 hover:cursor-pointer"
+                className="py-2 pl-2 w-full md:w-max flex items-center border rounded-xl select-none hover:bg-white dark:hover:bg-white/5 hover:cursor-pointer transition-colors"
               >
                 <div className="rounded-[0.5rem] w-10 h-10 bg-black/5 dark:bg-white/5 self-stretch flex items-center justify-center">
                   <Terminal strokeWidth={2} className="text-[#FF8800]" />

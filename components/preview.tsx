@@ -12,8 +12,8 @@ import {
 import { FragmentSchema } from '@/lib/schema'
 import { ExecutionResult } from '@/lib/types'
 import { DeepPartial } from 'ai'
-import { ChevronsRight, LoaderCircle, Save, ChevronLeft, ChevronRight } from 'lucide-react'
-import { Dispatch, SetStateAction } from 'react'
+import { ChevronsRight, LoaderCircle, Save, ChevronLeft, ChevronRight, Pencil, Check, X } from 'lucide-react'
+import { Dispatch, SetStateAction, useState, useEffect } from 'react'
 
 interface FragmentVersion {
   fragment: DeepPartial<FragmentSchema>
@@ -58,6 +58,31 @@ export function Preview({
   onPreviousVersion?: () => void
   onNextVersion?: () => void
 }) {
+  const [isEditingName, setIsEditingName] = useState(false)
+  const [editingName, setEditingName] = useState(appName || '')
+  const [justSaved, setJustSaved] = useState(false)
+
+  useEffect(() => {
+    setEditingName(appName || '')
+  }, [appName])
+
+  const handleSaveName = () => {
+    if (onAppNameChange && editingName.trim()) {
+      onAppNameChange(editingName.trim())
+      if (onSave) {
+        onSave()
+        setJustSaved(true)
+        setTimeout(() => setJustSaved(false), 2000)
+      }
+      setIsEditingName(false)
+    }
+  }
+
+  const handleCancelEdit = () => {
+    setEditingName(appName || '')
+    setIsEditingName(false)
+  }
+
   if (!fragment) {
     return null
   }
@@ -145,30 +170,62 @@ export function Preview({
           </div>
           <div className="flex items-center justify-end gap-2">
             {onAppNameChange && (
-              <input
-                type="text"
-                value={appName || ''}
-                onChange={(e) => onAppNameChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && onSave && canSave) {
-                    e.preventDefault()
-                    onSave()
-                  }
-                }}
-                placeholder="App name..."
-                className="px-2 py-1 text-xs border rounded-md max-w-[120px]"
-              />
-            )}
-            {onSave && (
-              <Button
-                onClick={onSave}
-                disabled={!canSave}
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8"
-              >
-                <Save className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-1 group relative">
+                {isEditingName ? (
+                  <>
+                    <input
+                      type="text"
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          handleSaveName()
+                        } else if (e.key === 'Escape') {
+                          handleCancelEdit()
+                        }
+                      }}
+                      placeholder="App name..."
+                      className="px-2 py-1 text-xs border rounded-md max-w-[120px]"
+                      autoFocus
+                    />
+                    <Button
+                      onClick={handleSaveName}
+                      size="icon"
+                      variant="ghost"
+                      className="h-6 w-6"
+                    >
+                      <Check className="h-3 w-3 text-green-600" />
+                    </Button>
+                    <Button
+                      onClick={handleCancelEdit}
+                      size="icon"
+                      variant="ghost"
+                      className="h-6 w-6"
+                    >
+                      <X className="h-3 w-3 text-red-600" />
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-xs px-2 py-1 max-w-[120px] truncate">
+                      {appName || 'Untitled App'}
+                    </span>
+                    <Button
+                      onClick={() => setIsEditingName(true)}
+                      size="icon"
+                      variant="ghost"
+                      className={`h-6 w-6 ${justSaved ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}
+                    >
+                      {justSaved ? (
+                        <Check className="h-3 w-3 text-green-600" />
+                      ) : (
+                        <Pencil className="h-3 w-3" />
+                      )}
+                    </Button>
+                  </>
+                )}
+              </div>
             )}
             {result && isLinkAvailable && (
               <DeployDialog

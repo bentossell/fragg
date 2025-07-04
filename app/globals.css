@@ -67,3 +67,17 @@
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes typewriter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-text {
+  opacity: 0;
+  animation: typewriter 0.05s ease-out forwards;
+}

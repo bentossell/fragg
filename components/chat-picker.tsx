@@ -29,8 +29,8 @@ export function ChatPicker({
   onLanguageModelChange: (config: LLMModelConfig) => void
 }) {
   // Map model IDs to the correct logo file
-  const getModelLogo = (model: LLMModel) => {
-    const modelId = model.id.toLowerCase()
+  const getModelLogo = (model: LLMModel | string) => {
+    const modelId = typeof model === 'string' ? model.toLowerCase() : model.id.toLowerCase()
     if (modelId.includes('anthropic') || modelId.includes('claude')) return 'anthropic'
     if (modelId.includes('openai') || modelId.includes('gpt')) return 'openai'
     if (modelId.includes('google') || modelId.includes('gemini')) return 'google'
@@ -44,9 +44,15 @@ export function ChatPicker({
     if (modelId.includes('vertex')) return 'vertex'
     
     // Default fallback
-    if (model.providerId === 'openrouter') return 'openai'
-    return model.providerId
+    if (typeof model === 'object' && model.providerId === 'openrouter') return 'openai'
+    return typeof model === 'object' ? model.providerId : 'openai'
   }
+
+  // Filter out (direct) models
+  const filteredModels = models.filter(model => !model.provider.includes('(direct)'))
+
+  // Get current model for logo display
+  const currentModel = filteredModels.find(model => model.id === languageModel.model)
 
   return (
     <div className="flex items-center space-x-2">
@@ -96,12 +102,21 @@ export function ChatPicker({
           defaultValue={languageModel.model}
           onValueChange={(e) => onLanguageModelChange({ model: e })}
         >
-          <SelectTrigger className="whitespace-nowrap border-none shadow-none focus:ring-0 px-0 py-0 h-8 text-xs">
+          <SelectTrigger className="whitespace-nowrap border-none shadow-none focus:ring-0 px-0 py-0 h-8 text-xs flex items-center gap-2">
+            {currentModel && (
+              <Image
+                className="flex"
+                src={`/thirdparty/logos/${getModelLogo(currentModel)}.svg`}
+                alt={currentModel.provider}
+                width={14}
+                height={14}
+              />
+            )}
             <SelectValue placeholder="Language model" />
           </SelectTrigger>
           <SelectContent>
             {Object.entries(
-              Object.groupBy(models, ({ provider }) => provider),
+              Object.groupBy(filteredModels, ({ provider }) => provider),
             ).map(([provider, models]) => (
               <SelectGroup key={provider}>
                 <SelectLabel>{provider}</SelectLabel>

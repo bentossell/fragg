@@ -482,6 +482,10 @@ export default function SimplifiedHome() {
   }) {
     setFragment(preview.fragment || undefined)
     setResult(preview.result)
+    // Switch to preview tab if there's a result
+    if (preview.result) {
+      setCurrentTab('fragment')
+    }
   }
 
   const handleEditMessage = useCallback((index: number, newContent: string) => {
