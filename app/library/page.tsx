@@ -39,9 +39,8 @@ export default function LibraryPage() {
   }
   
   const handleOpenApp = (app: SavedApp) => {
-    // Store the app ID in sessionStorage so the main page can load it
-    sessionStorage.setItem('loadAppId', app.id)
-    window.location.href = '/'
+    // Use URL params instead of sessionStorage
+    window.location.href = `/?app=${app.id}`
   }
   
   const getTemplateIcon = (template: string) => {

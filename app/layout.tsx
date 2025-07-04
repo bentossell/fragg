@@ -1,5 +1,6 @@
 import './globals.css'
 import { PostHogProvider, ThemeProvider } from './providers'
+import { NuqsAdapter } from 'nuqs/adapters/next/app'
 import { Toaster } from '@/components/ui/toaster'
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata } from 'next'
@@ -14,25 +15,22 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode
-}>) {
+}) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <PostHogProvider>
-        <body className={inter.className}>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="dark"
-            enableSystem
-            disableTransitionOnChange
-          >
-            {children}
-          </ThemeProvider>
-          <Toaster />
-          <Analytics />
-        </body>
-      </PostHogProvider>
+      <body className={inter.className}>
+        <NuqsAdapter>
+          <PostHogProvider>
+            <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+              {children}
+              <Toaster />
+              <Analytics />
+            </ThemeProvider>
+          </PostHogProvider>
+        </NuqsAdapter>
+      </body>
     </html>
   )
 }

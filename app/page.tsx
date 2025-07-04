@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react'
 import { usePostHog } from 'posthog-js/react'
 import { useLocalStorage } from 'usehooks-ts'
 import { experimental_useObject as useObject } from 'ai/react'
+import { useQueryState, parseAsString } from 'nuqs'
 import modelsList from '@/lib/models.json'
 import templates, { TemplateId } from '@/lib/templates'
 import { Chat } from '@/components/chat'
@@ -36,7 +37,7 @@ interface FragmentVersion {
   timestamp: number
 }
 
-export default function SimplifiedHome() {
+function SimplifiedHomeContent() {
   const [chatInput, setChatInput] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [selectedTemplate, setSelectedTemplate] = useState<'auto' | TemplateId>('auto')
@@ -47,6 +48,9 @@ export default function SimplifiedHome() {
   const [result, setResult] = useState<ExecutionResult | undefined>()
   const [currentTab, setCurrentTab] = useState<'code' | 'fragment'>('code')
   const [isPreviewLoading, setIsPreviewLoading] = useState(false)
+  
+  // URL parameter for app ID
+  const [urlAppId, setUrlAppId] = useQueryState('app', parseAsString)
   
   // Fragment versioning
   const [fragmentVersions, setFragmentVersions] = useState<FragmentVersion[]>([])
@@ -66,6 +70,13 @@ export default function SimplifiedHome() {
     messagesRef.current = messages
   }, [messages])
   
+  // Update URL when app ID changes
+  useEffect(() => {
+    if (currentAppId !== urlAppId) {
+      setUrlAppId(currentAppId)
+    }
+  }, [currentAppId])
+
   const [languageModel, setLanguageModel] = useLocalStorage<LLMModelConfig>(
     'languageModel',
     {
@@ -85,7 +96,10 @@ export default function SimplifiedHome() {
   const currentModel = filteredModels.find(
     (model: any) => model.id === languageModel.model,
   )
-  const currentTemplate = selectedTemplate === 'auto' ? templates : { [selectedTemplate]: templates[selectedTemplate] }
+  const currentTemplate = useMemo(() => 
+    selectedTemplate === 'auto' ? templates : { [selectedTemplate]: templates[selectedTemplate] },
+    [selectedTemplate]
+  )
 
   // Add state to history
   const addToHistory = useCallback((newMessages: Message[], newFragment?: DeepPartial<FragmentSchema>, newResult?: ExecutionResult) => {
@@ -306,18 +320,6 @@ export default function SimplifiedHome() {
     }
   }, [object])
 
-  // Check if we need to load an app from library on mount
-  useEffect(() => {
-    const loadAppId = sessionStorage.getItem('loadAppId')
-    if (loadAppId) {
-      sessionStorage.removeItem('loadAppId')
-      const app = appLibrary.getApp(loadAppId)
-      if (app) {
-        handleLoadFromLibrary(app)
-      }
-    }
-  }, [])
-
   // Auto-save current state periodically
   useEffect(() => {
     if (!currentAppId || messages.length === 0) return
@@ -424,13 +426,56 @@ export default function SimplifiedHome() {
     setFragment(app.code)
     setResult(app.sandboxConfig)
     
-    // If there's code and result, switch to preview tab
-    if (app.code && app.sandboxConfig) {
+    // If there's code, switch to preview tab (even without sandboxConfig)
+    if (app.code) {
       setCurrentTab('fragment')
+      
+      // If we have code but no sandbox result, recreate the sandbox
+      if (!app.sandboxConfig) {
+        setIsPreviewLoading(true)
+        try {
+          const response = await fetch('/api/sandbox', {
+            method: 'POST',
+            body: JSON.stringify({
+              fragment: app.code,
+              sessionId: app.id,
+            }),
+          })
+          
+          const result = await response.json()
+          setResult(result)
+          setIsPreviewLoading(false)
+          
+          // Update the app with the new sandbox config
+          appLibrary.saveApp({
+            ...app,
+            sandboxConfig: result,
+            lastSandboxId: result.sbxId,
+          })
+          
+          // Update the last message with the result if it exists
+          if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'assistant') {
+            const updated = [...chatMessages]
+            updated[updated.length - 1] = {
+              ...updated[updated.length - 1],
+              result,
+            }
+            setMessages(updated)
+          }
+        } catch (error) {
+          console.error('Failed to create sandbox:', error)
+          setIsPreviewLoading(false)
+          toast({
+            title: 'Failed to load preview',
+            description: 'Could not create sandbox for the app. The code is still available.',
+            variant: 'destructive'
+          })
+        }
+      }
     }
     
-    // If there's code, create a sandbox with it
-    if (app.code && app.lastSandboxId) {
+    // If there's code and an existing sandbox ID, try to restore it
+    if (app.code && app.lastSandboxId && app.sandboxConfig) {
       try {
         const { sandbox } = await sandboxReconnectionManager.getOrCreateSandbox(
           app.id,
@@ -454,6 +499,28 @@ export default function SimplifiedHome() {
       description: `"${app.name}" has been loaded from your library.`,
     })
   }, [])
+
+  // Check if we need to load an app from library on mount
+  useEffect(() => {
+    if (urlAppId) {
+      const app = appLibrary.getApp(urlAppId)
+      if (app) {
+        handleLoadFromLibrary(app)
+      }
+    } else {
+      // Fallback: check sessionStorage for backwards compatibility
+      const loadAppId = sessionStorage.getItem('loadAppId')
+      if (loadAppId) {
+        sessionStorage.removeItem('loadAppId')
+        const app = appLibrary.getApp(loadAppId)
+        if (app) {
+          handleLoadFromLibrary(app)
+          // Update URL to include app ID
+          setUrlAppId(loadAppId)
+        }
+      }
+    }
+  }, [urlAppId, handleLoadFromLibrary, setUrlAppId])
 
   const handleClear = useCallback(() => {
     stop()
@@ -675,5 +742,13 @@ export default function SimplifiedHome() {
         />
       </div>
     </main>
+  )
+}
+
+export default function SimplifiedHome() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-screen">Loading...</div>}>
+      <SimplifiedHomeContent />
+    </Suspense>
   )
 } 

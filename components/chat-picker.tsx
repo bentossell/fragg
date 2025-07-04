@@ -199,7 +199,7 @@ export function ChatPicker({
             ))}
             {searchFilteredModels.length === 0 && (
               <div className="p-4 text-center text-muted-foreground text-sm">
-                No models found matching "{searchTerm}"
+                No models found matching &quot;{searchTerm}&quot;
               </div>
             )}
           </SelectContent>
