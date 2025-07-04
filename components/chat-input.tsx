@@ -173,7 +173,7 @@ export function ChatInput({
         </div>
       )}
       <div className="relative">
-        <RepoBanner className="absolute bottom-full inset-x-2 translate-y-1 z-0 pb-2" />
+        {/* <RepoBanner className="absolute bottom-full inset-x-2 translate-y-1 z-0 pb-2" /> */}
         <div
           className={`shadow-md rounded-2xl relative z-10 bg-background border ${
             dragActive
@@ -208,7 +208,7 @@ export function ChatInput({
                 <Tooltip delayDuration={0}>
                   <TooltipTrigger asChild>
                     <Button
-                      disabled={!isMultiModal || isErrored}
+                      disabled={Boolean(!isMultiModal || isErrored)}
                       type="button"
                       variant="outline"
                       size="icon"
@@ -233,7 +233,7 @@ export function ChatInput({
                   <Tooltip delayDuration={0}>
                     <TooltipTrigger asChild>
                       <Button
-                        disabled={isErrored}
+                        disabled={Boolean(isErrored)}
                         variant="default"
                         size="icon"
                         type="submit"

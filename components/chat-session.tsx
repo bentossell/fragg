@@ -128,6 +128,27 @@ export function ChatSession({
 
         const result = await response.json();
         console.log('result', result);
+        
+        // Check if sandbox creation failed
+        if (!response.ok || result.error) {
+          setIsPreviewLoading(false);
+          onGeneratingChange(false);
+          
+          // Show error message to user
+          const errorMsg = result.details || result.error || 'Failed to create sandbox';
+          setErrorMessage(errorMsg);
+          
+          // Log full error for debugging
+          console.error('Sandbox creation failed:', result);
+          
+          // If it's a template access error, provide helpful guidance
+          if (errorMsg.includes('does not have access to the template')) {
+            setErrorMessage('Template access denied. This may be a configuration issue. Please try a different template or contact support.');
+          }
+          
+          return;
+        }
+        
         posthog.capture('sandbox_created', { url: result.url });
         
         setResult(result);
@@ -268,6 +289,7 @@ export function ChatSession({
 
   const retry = useCallback(() => {
     onGeneratingChange(true)
+    setErrorMessage('') // Clear any previous error
     
     submit({
       userID: session?.user?.id,
@@ -321,8 +343,8 @@ export function ChatSession({
         />
         <ChatInput
           retry={retry}
-          isErrored={error !== undefined}
-          errorMessage={errorMessage}
+          isErrored={error !== undefined || errorMessage !== ''}
+          errorMessage={errorMessage || error?.message || ''}
           isLoading={isGenerating}
           isRateLimited={isRateLimited}
           stop={stop}
@@ -341,14 +363,16 @@ export function ChatSession({
             languageModel={languageModel}
             onLanguageModelChange={() => {}}
           />
-          <ChatSettings
-            languageModel={languageModel}
-            onLanguageModelChange={() => {}}
-            apiKeyConfigurable={!process.env.NEXT_PUBLIC_NO_API_KEY_INPUT}
-            baseURLConfigurable={!process.env.NEXT_PUBLIC_NO_BASE_URL_INPUT}
-          />
         </ChatInput>
+        
+        <ChatSettings
+          apiKeyConfigurable={false}
+          baseURLConfigurable={false}
+          languageModel={languageModel}
+          onLanguageModelChange={() => {}}
+        />
       </div>
+      
       <Preview
         teamID={userTeam?.id}
         accessToken={session?.access_token}

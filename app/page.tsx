@@ -12,6 +12,7 @@ import { ChatInput } from '@/components/chat-input'
 import { ChatPicker } from '@/components/chat-picker'
 import { ChatSettings } from '@/components/chat-settings'
 import { Preview } from '@/components/preview'
+import { EnhancedPreview } from '@/components/enhanced-preview'
 import { NavBar } from '@/components/navbar'
 import { AppLibrary, SavedApp } from '@/lib/storage/app-library'
 import { singleActiveSandboxManager } from '@/lib/sandbox/single-active-manager'
@@ -24,6 +25,7 @@ import { Message, toAISDKMessages, toMessageImage } from '@/lib/messages'
 import { fragmentSchema as schema, FragmentSchema } from '@/lib/schema'
 import { ExecutionResult } from '@/lib/types'
 import { DeepPartial } from 'ai'
+import { forkApp } from './actions/fork-app'
 
 interface HistoryEntry {
   messages: Message[]
@@ -49,8 +51,9 @@ function SimplifiedHomeContent() {
   const [currentTab, setCurrentTab] = useState<'code' | 'fragment'>('code')
   const [isPreviewLoading, setIsPreviewLoading] = useState(false)
   
-  // URL parameter for app ID
+  // URL parameters
   const [urlAppId, setUrlAppId] = useQueryState('app', parseAsString)
+  const [forkShareId, setForkShareId] = useQueryState('fork', parseAsString)
   
   // Fragment versioning
   const [fragmentVersions, setFragmentVersions] = useState<FragmentVersion[]>([])
@@ -66,6 +69,80 @@ function SimplifiedHomeContent() {
   // Add state for auto-save indicator
   const [isAutoSaving, setIsAutoSaving] = useState(false)
   
+
+  
+  // Handle forking an app
+  const handleForkApp = useCallback(async (shareId: string) => {
+    try {
+      const result = await forkApp(shareId)
+      
+      if (!result.success || !result.appData) {
+        toast({
+          title: 'Failed to fork app',
+          description: result.error || 'Unknown error occurred',
+          variant: 'destructive'
+        })
+        // Clear the fork parameter
+        setForkShareId(null)
+        return
+      }
+      
+      // Set up the forked app
+      const { appData } = result
+      setAppName(appData.name)
+      setSelectedTemplate(appData.template as 'auto' | TemplateId)
+      setFragment(appData.code)
+      
+      // Create initial message
+      const forkMessage: Message = {
+        role: 'user',
+        content: [{ 
+          type: 'text', 
+          text: appData.description || `Forked from shared app: ${shareId}` 
+        }]
+      }
+      setMessages([forkMessage])
+      
+      // Clear the fork parameter after loading
+      setForkShareId(null)
+      
+      toast({
+        title: 'App forked successfully',
+        description: 'You can now edit and save your own version.',
+      })
+      
+      // If there's code, create a sandbox
+      if (appData.code) {
+        setIsPreviewLoading(true)
+        try {
+          const response = await fetch('/api/sandbox', {
+            method: 'POST',
+            body: JSON.stringify({
+              fragment: appData.code,
+              sessionId: appData.id,
+            }),
+          })
+          
+          const sandboxResult = await response.json()
+          setResult(sandboxResult)
+          setCurrentTab('fragment')
+        } catch (error) {
+          console.error('Error creating sandbox for forked app:', error)
+        } finally {
+          setIsPreviewLoading(false)
+        }
+      }
+    } catch (error) {
+      console.error('Error forking app:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to fork the app. Please try again.',
+        variant: 'destructive'
+      })
+      setForkShareId(null)
+    }
+  }, [setForkShareId])
+  
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
@@ -76,6 +153,14 @@ function SimplifiedHomeContent() {
       setUrlAppId(currentAppId)
     }
   }, [currentAppId])
+  
+  // Handle fork parameter on mount
+  useEffect(() => {
+    if (forkShareId && messages.length === 0) {
+      // Load the forked app
+      handleForkApp(forkShareId)
+    }
+  }, [forkShareId, messages.length, handleForkApp])
 
   const [languageModel, setLanguageModel] = useLocalStorage<LLMModelConfig>(
     'languageModel',
@@ -95,7 +180,7 @@ function SimplifiedHomeContent() {
 
   const currentModel = filteredModels.find(
     (model: any) => model.id === languageModel.model,
-  )
+  ) || filteredModels[0] // Fallback to first model if not found
   const currentTemplate = useMemo(() => 
     selectedTemplate === 'auto' ? templates : { [selectedTemplate]: templates[selectedTemplate] },
     [selectedTemplate]
@@ -406,6 +491,8 @@ function SimplifiedHomeContent() {
   }, [appName, currentAppId, messages, fragment, selectedTemplate, result, fragmentVersions, currentVersionIndex])
 
   const handleLoadFromLibrary = useCallback(async (app: SavedApp) => {
+    console.log('Loading app from library:', app.name)
+    
     // Close current sandbox
     await singleActiveSandboxManager.closeCurrent()
     
@@ -422,11 +509,13 @@ function SimplifiedHomeContent() {
       // Load the current version
       const currentVersion = app.fragmentVersions[app.currentVersionIndex ?? app.fragmentVersions.length - 1]
       setFragment(currentVersion.fragment)
-      setResult(currentVersion.result)
+      // Don't set the old result yet - wait until we create/verify sandbox
+      setResult(undefined)
     } else {
       // Fallback to old format - create a single version from app.code
       setFragment(app.code)
-      setResult(app.sandboxConfig)
+      // Don't set the old result yet
+      setResult(undefined)
       
       if (app.code) {
         const version: FragmentVersion = {
@@ -466,8 +555,8 @@ function SimplifiedHomeContent() {
         ? app.fragmentVersions[app.currentVersionIndex ?? app.fragmentVersions.length - 1].result
         : app.sandboxConfig
       
-      // If we have code but no sandbox result, recreate the sandbox
-      if (currentFragment && !currentResult) {
+      // Always create a new sandbox when loading from library
+      if (currentFragment) {
         setIsPreviewLoading(true)
         try {
           const response = await fetch('/api/sandbox', {
@@ -478,11 +567,14 @@ function SimplifiedHomeContent() {
             }),
           })
           
-          if (!response.ok) {
-            throw new Error(`Sandbox creation failed: ${response.statusText}`)
+          const result = await response.json()
+          
+          // Check if sandbox creation was successful
+          if (!response.ok || result.error) {
+            throw new Error(result.details || result.error || 'Failed to create sandbox')
           }
           
-          const result = await response.json()
+          console.log('Created new sandbox for loaded app:', result.sbxId)
           setResult(result)
           
           // Update the version with the new result
@@ -517,31 +609,13 @@ function SimplifiedHomeContent() {
           console.error('Failed to create sandbox:', error)
           toast({
             title: 'Failed to load preview',
-            description: 'Could not create sandbox for the app. The code is still available.',
+            description: error instanceof Error ? error.message : 'Could not create sandbox for the app. The code is still available.',
             variant: 'destructive'
           })
+          // Keep the fragment loaded even if sandbox creation fails
+          setCurrentTab('code')
         } finally {
           setIsPreviewLoading(false)
-        }
-      } else if (currentResult && currentResult.sbxId) {
-        // Try to restore existing sandbox
-        try {
-          const { sandbox, isNew } = await sandboxReconnectionManager.getOrCreateSandbox(
-            app.id,
-            currentResult.sbxId,
-            app.template
-          )
-          
-          if (isNew && currentFragment && currentFragment.files) {
-            // New sandbox created, need to write files
-            for (const file of currentFragment.files) {
-              await sandbox.files.write(file.path, file.content)
-            }
-          }
-        } catch (error) {
-          console.error('Failed to restore sandbox:', error)
-          // Don't show error toast here, sandbox might just be expired
-          // The preview will still work, it will just create a new sandbox when needed
         }
       }
     }
@@ -572,7 +646,7 @@ function SimplifiedHomeContent() {
         }
       }
     }
-  }, [urlAppId, handleLoadFromLibrary, setUrlAppId])
+  }, [urlAppId]) // Only depend on urlAppId to prevent re-renders
 
   const handleClear = useCallback(() => {
     stop()
@@ -757,7 +831,7 @@ function SimplifiedHomeContent() {
               input={chatInput}
               handleInputChange={(e) => setChatInput(e.target.value)}
               handleSubmit={handleSubmit}
-              isMultiModal={currentModel?.multiModal || false}
+              isMultiModal={Boolean(currentModel?.multiModal)}
               files={files}
               handleFileChange={setFiles}
             >
@@ -772,26 +846,51 @@ function SimplifiedHomeContent() {
             </ChatInput>
           </div>
         </div>
-        <Preview
-          teamID={undefined}
-          accessToken={undefined}
-          selectedTab={currentTab}
-          onSelectedTabChange={setCurrentTab}
-          isChatLoading={isLoading}
-          isPreviewLoading={isPreviewLoading}
-          fragment={fragment}
-          result={result as ExecutionResult}
-          onClose={() => setFragment(undefined)}
-          appName={appName}
-          onAppNameChange={setAppName}
-          onSave={handleSaveToLibrary}
-          canSave={messages.length > 0}
-          fragmentVersions={fragmentVersions}
-          currentVersionIndex={currentVersionIndex}
-          onPreviousVersion={goToPreviousVersion}
-          onNextVersion={goToNextVersion}
-          isAutoSaving={isAutoSaving}
-        />
+        {fragment ? (
+          <EnhancedPreview
+            fragment={fragment}
+            result={result}
+            isLoading={isPreviewLoading}
+            isGenerating={isLoading}
+            currentAppId={currentAppId}
+            appName={appName}
+            template={selectedTemplate}
+            messages={messages}
+            onAppNameChange={setAppName}
+            onSave={handleSaveToLibrary}
+            onSandboxRecreate={async (fragment) => {
+              const response = await fetch('/api/sandbox', {
+                method: 'POST',
+                body: JSON.stringify({
+                  fragment,
+                  sessionId: currentAppId,
+                }),
+              })
+              return await response.json()
+            }}
+          />
+        ) : (
+          <Preview
+            teamID={undefined}
+            accessToken={undefined}
+            selectedTab={currentTab}
+            onSelectedTabChange={setCurrentTab}
+            isChatLoading={isLoading}
+            isPreviewLoading={isPreviewLoading}
+            fragment={fragment}
+            result={result as ExecutionResult}
+            onClose={() => setFragment(undefined)}
+            appName={appName}
+            onAppNameChange={setAppName}
+            onSave={handleSaveToLibrary}
+            canSave={messages.length > 0}
+            fragmentVersions={fragmentVersions}
+            currentVersionIndex={currentVersionIndex}
+            onPreviousVersion={goToPreviousVersion}
+            onNextVersion={goToNextVersion}
+            isAutoSaving={isAutoSaving}
+          />
+        )}
       </div>
     </main>
   )

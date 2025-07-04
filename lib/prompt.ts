@@ -30,6 +30,11 @@ export function toPrompt(template: Templates) {
     - Include hover effects and transitions
     - Use beautiful color schemes
     - Add icons from lucide-react where appropriate
+    - CRITICAL: For Next.js apps, ALWAYS write your main component to "pages/index.tsx" (Pages Router format)
+    - Export a default React component from pages/index.tsx that contains your complete app
+    - Import React and any needed dependencies at the top
+    - Create a full page component, not just a snippet - this will replace the entire home page
+    - Use proper React functional component syntax with TypeScript
     
     For Streamlit apps:
     - Use st.markdown() with custom CSS for styling
@@ -49,6 +54,11 @@ export function toPrompt(template: Templates) {
     Do not touch project dependencies files like package.json, package-lock.json, requirements.txt, etc.
     Do not wrap code in backticks.
     Always break the lines correctly.
+    
+    CRITICAL TEMPLATE SELECTION:
+    You MUST use the EXACT template ID from the list below. Do NOT modify or shorten template names.
+    For example, use "nextjs-developer" NOT "nextjs", use "vue-developer" NOT "vue".
+    
     Templates available:
     ${templatesToPrompt(template)}
   `

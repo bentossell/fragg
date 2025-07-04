@@ -38,6 +38,26 @@ export class SandboxReconnectionManager {
         } catch (error) {
           console.log(`Failed to reconnect (attempt ${attempts + 1}):`, error)
           this.reconnectAttempts.set(sandboxId, attempts + 1)
+          
+          // Check if error is 401 Unauthorized or 502 Bad Gateway - don't retry these
+          if (error instanceof Error) {
+            const errorMessage = error.message.toLowerCase()
+            if (errorMessage.includes('401') || 
+                errorMessage.includes('unauthorized') ||
+                errorMessage.includes('502') ||
+                errorMessage.includes('bad gateway') ||
+                errorMessage.includes('does not exist')) {
+              console.log('Sandbox is expired or invalid, skipping retries')
+              this.reconnectAttempts.delete(sandboxId)
+              // Continue to create new sandbox below
+            } else if (attempts + 1 >= this.maxAttempts) {
+              console.log('Max reconnect attempts reached')
+              this.reconnectAttempts.delete(sandboxId)
+            } else {
+              // Re-throw for other errors if we haven't hit max attempts
+              throw error
+            }
+          }
         }
       }
     }

@@ -1,3 +1,5 @@
+'use client'
+
 import { CodeView } from './code-view'
 import { Button } from './ui/button'
 import { CopyButton } from './ui/copy-button'
