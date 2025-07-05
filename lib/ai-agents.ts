@@ -21,7 +21,7 @@ export interface AgentResult {
 
 // Base agent class with optimized prompts
 export abstract class CodeAgent {
-  constructor(protected name: string, protected model = 'anthropic/claude-3.5-haiku') {}
+  constructor(protected name: string, protected model = 'google/gemini-2.5-flash-lite-preview-06-17') {}
   
   abstract generate(context: AgentContext): Promise<AgentResult>
   
@@ -276,7 +276,7 @@ ${htmlStructure ? '\nHTML structure context available' : ''}`,
 // React Component Agent (for Next.js)
 export class ReactAgent extends CodeAgent {
   constructor() {
-    super('React Agent', 'anthropic/claude-3.5-sonnet') // Use more powerful model for React
+    super('React Agent', 'google/gemini-2.5-flash-lite-preview-06-17') // Use Gemini model for React
   }
   
   async generate(context: AgentContext): Promise<AgentResult> {
@@ -585,6 +585,86 @@ if __name__ == "__main__":
   }
 }
 
+// New Diff Agent for targeted code changes
+export class DiffAgent extends CodeAgent {
+  constructor() {
+    super('Diff Agent', 'anthropic/claude-3.5-sonnet')
+  }
+  
+  async generate(context: AgentContext): Promise<AgentResult> {
+    const startTime = Date.now()
+    
+    try {
+      const existingCode = context.sharedState.get('existingCode') || ''
+      const targetSections = context.sharedState.get('targetSections') || []
+      const language = context.sharedState.get('language') || 'typescript'
+      
+      if (!existingCode) {
+        throw new Error('No existing code provided for diff generation')
+      }
+      
+      const prompt = `You are a code modification expert. The user wants to modify existing code.
+
+USER REQUEST: "${context.userPrompt}"
+
+EXISTING CODE:
+\`\`\`${language}
+${existingCode}
+\`\`\`
+
+TARGET SECTIONS: ${targetSections.join(', ')}
+
+Generate ONLY the necessary changes as a JSON array of diffs. Each diff should have:
+- type: "add" | "remove" | "replace" | "modify"
+- searchPattern: A unique string to find the location (or startLine/endLine for line-based changes)
+- content: The new code to add/replace (empty for remove)
+- description: Brief description of the change
+
+Focus on:
+1. Minimal changes - only modify what's necessary
+2. Preserve all unrelated code and functionality
+3. Maintain code style and conventions
+4. Keep proper indentation
+5. Ensure the changes integrate seamlessly
+
+Example response format:
+[
+  {
+    "type": "replace",
+    "searchPattern": "className=\\"old-class\\"",
+    "content": "className=\\"new-class\\"",
+    "description": "Update button styling"
+  }
+]
+
+Generate valid JSON array only, no explanations:`
+      
+      const response = await this.callAI(prompt, 2500)
+      
+      return {
+        agentName: this.name,
+        code: response,
+        dependencies: [],
+        metadata: { 
+          type: 'diff',
+          language,
+          targetSections
+        },
+        executionTime: Date.now() - startTime
+      }
+    } catch (error) {
+      return {
+        agentName: this.name,
+        code: '[]', // Empty diff array
+        dependencies: [],
+        metadata: { type: 'diff', fallback: true },
+        executionTime: Date.now() - startTime,
+        errors: [error instanceof Error ? error.message : 'Unknown error']
+      }
+    }
+  }
+}
+
 // Agent factory for easy instantiation
 export class AgentFactory {
   static createAgents(stack: string): CodeAgent[] {
@@ -608,6 +688,10 @@ export class AgentFactory {
       default:
         return [new ReactAgent()]
     }
+  }
+  
+  static createDiffAgent(): DiffAgent {
+    return new DiffAgent()
   }
   
   static getEstimatedTime(stack: string, complexity: string): number {

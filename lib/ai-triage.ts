@@ -22,7 +22,23 @@ export interface TriageResult {
 // Fast keyword-based rules for instant decisions
 const ULTRA_FAST_RULES: Record<string, Partial<TriageResult>> = {
   // Static site patterns - fastest generation
-  'personal website|portfolio|resume|cv|about me|landing page|company website|business website': {
+  'personal website|portfolio|resume|cv|about me|landing page|company website|business website|personal site|my website|homepage|home page|personal page|portfolio site|online resume|digital resume|bio|biography|personal bio|showcase|personal showcase|profile|personal profile|professional profile|online presence|web presence|single page|simple website|basic website|static website|static site|html website|html site|introduction|personal introduction|about page': {
+    stack: 'static',
+    template: 'static-html',
+    priority: 'ultra-fast',
+    requirements: {
+      needsBackend: false,
+      needsDatabase: false,
+      needsAuth: false,
+      isDataHeavy: false,
+      complexity: 'simple',
+      isInteractive: false,
+      needsRealtime: false
+    }
+  },
+  
+  // Business/Marketing sites that should be static
+  'marketing site|marketing website|brochure site|brochure website|info site|information site|promotional site|promotional website|agency website|agency site|consulting website|service website|services website|product page|sales page|coming soon|under construction|maintenance page|contact page|about us|company info|company information': {
     stack: 'static',
     template: 'static-html',
     priority: 'ultra-fast',
@@ -38,7 +54,7 @@ const ULTRA_FAST_RULES: Record<string, Partial<TriageResult>> = {
   },
   
   // Simple interactive tools
-  'calculator|converter|timer|counter|quiz|form|contact form|survey': {
+  'calculator|converter|timer|counter|quiz|form|contact form|survey|simple form|basic form|feedback form|newsletter|email signup|subscribe|subscription form|simple tool|basic tool|utility|web tool|online tool': {
     stack: 'static',
     template: 'static-html',
     priority: 'fast',
@@ -87,6 +103,22 @@ const ULTRA_FAST_RULES: Record<string, Partial<TriageResult>> = {
 }
 
 const FAST_RULES: Record<string, Partial<TriageResult>> = {
+  // More static patterns that are slightly more complex
+  'restaurant website|restaurant site|cafe website|menu page|food menu|restaurant menu|small business website|small business site|local business|service page|pricing page|price list|testimonials|reviews page|faq page|frequently asked questions|help page|documentation page|simple docs|product showcase|service showcase|photo gallery|image gallery|portfolio gallery': {
+    stack: 'static',
+    template: 'static-html',
+    priority: 'fast',
+    requirements: {
+      needsBackend: false,
+      needsDatabase: false,
+      needsAuth: false,
+      isDataHeavy: false,
+      complexity: 'simple',
+      isInteractive: false,
+      needsRealtime: false
+    }
+  },
+  
   // Apps requiring more complex UI but no backend
   'dashboard|admin panel|ui library|component library|design system': {
     stack: 'nextjs',
@@ -176,6 +208,39 @@ const triageSchema = z.object({
 export async function triageRequest(userPrompt: string): Promise<TriageResult> {
   const promptLower = userPrompt.toLowerCase()
   
+  // NEW: Check if user explicitly wants something simple/static
+  const wantsSimple = /simple|basic|static|just html|plain html|no framework|vanilla|pure css|without react|without framework/i.test(userPrompt)
+  
+  // NEW: Check if it's obviously a personal/small site
+  const isPersonalSite = /my |personal |for me|i want|i need|my own|build me/i.test(userPrompt) && 
+                        /website|site|page|portfolio|resume|cv|blog|landing/i.test(userPrompt)
+  
+  // If user explicitly wants simple or it's a personal site, prefer static
+  if (wantsSimple || isPersonalSite) {
+    // Check if it actually needs complex features
+    const needsComplex = /database|auth|login|user|account|payment|ecommerce|real-time|chat|api|backend/i.test(userPrompt)
+    
+    if (!needsComplex) {
+      return {
+        stack: 'static',
+        template: 'static-html',
+        reasoning: wantsSimple ? 'User explicitly requested a simple/static site' : 'Personal website detected - using static HTML for simplicity',
+        requirements: {
+          needsBackend: false,
+          needsDatabase: false,
+          needsAuth: false,
+          isDataHeavy: false,
+          complexity: 'simple',
+          isInteractive: promptLower.includes('interactive') || promptLower.includes('form'),
+          needsRealtime: false
+        },
+        components: extractComponents(promptLower),
+        estimatedTokens: 1000,
+        priority: 'ultra-fast'
+      }
+    }
+  }
+  
   // Try ultra-fast rules first (for sub-5-second generation)
   for (const [pattern, result] of Object.entries(ULTRA_FAST_RULES)) {
     if (matchesPattern(promptLower, pattern)) {
@@ -240,12 +305,17 @@ Available stacks:
 - gradio: ML model demos and AI interfaces
 - vue: Vue.js apps (only if specifically requested)
 
-Guidelines:
-- Prefer "static" for simple sites, portfolios, landing pages, basic tools
-- Use "nextjs" for complex UIs, dashboards, multi-page apps
-- Use "streamlit" for data analysis, charts, scientific computing
-- Use "gradio" for ML demos, AI interfaces
-- Prioritize speed: simple = static, complex = nextjs
+CRITICAL Guidelines:
+- STRONGLY prefer "static" for ANY personal website, portfolio, landing page, company website, or simple site
+- Use "static" for anything that doesn't explicitly need a backend, database, or user accounts
+- Only use "nextjs" if the user specifically mentions React, Next.js, or needs complex features like:
+  - User authentication/accounts
+  - Database operations
+  - API endpoints
+  - Server-side rendering for SEO at scale
+  - Complex state management
+- Personal websites, portfolios, and landing pages should ALWAYS be static unless explicitly stated otherwise
+- If unsure, default to "static" for simplicity and speed
 - Estimate tokens conservatively (1000-5000 range)
 
 Return valid JSON only, no markdown or explanations.`
@@ -273,8 +343,9 @@ Return valid JSON only, no markdown or explanations.`
     console.warn('AI triage failed, using default:', error)
     
     // Smart default based on prompt analysis
-    const isSimple = /personal|portfolio|landing|about|resume|cv|simple/.test(userPrompt.toLowerCase())
-    const isData = /data|chart|graph|analysis|visualization|plot/.test(userPrompt.toLowerCase())
+    const isSimple = /personal|portfolio|landing|about|resume|cv|simple|basic|website|site|page|home|company|business|agency|service|restaurant|cafe|small/i.test(userPrompt.toLowerCase())
+    const needsBackend = /database|auth|login|user|account|api|backend|server|dynamic|cms|blog with admin|ecommerce|payment/i.test(userPrompt.toLowerCase())
+    const isData = /data|chart|graph|analysis|visualization|plot/i.test(userPrompt.toLowerCase())
     
     if (isData) {
       return {
@@ -296,22 +367,25 @@ Return valid JSON only, no markdown or explanations.`
       }
     }
     
+    // Default to static for simple sites unless backend features are needed
+    const shouldUseStatic = (isSimple && !needsBackend) || (!needsBackend && userPrompt.length < 100)
+    
     return {
-      stack: isSimple ? 'static' : 'nextjs',
-      template: isSimple ? 'static-html' : 'nextjs-developer',
-      reasoning: 'Default fallback selection',
+      stack: shouldUseStatic ? 'static' : 'nextjs',
+      template: shouldUseStatic ? 'static-html' : 'nextjs-developer',
+      reasoning: shouldUseStatic ? 'Simple site without backend requirements' : 'Complex features or backend requirements detected',
       requirements: {
-        needsBackend: false,
-        needsDatabase: false,
-        needsAuth: false,
+        needsBackend: needsBackend,
+        needsDatabase: needsBackend,
+        needsAuth: needsBackend,
         isDataHeavy: false,
-        complexity: isSimple ? 'simple' : 'medium',
+        complexity: shouldUseStatic ? 'simple' : 'medium',
         isInteractive: true,
         needsRealtime: false
       },
       components: extractComponents(userPrompt.toLowerCase()),
-      estimatedTokens: isSimple ? 1000 : 2500,
-      priority: isSimple ? 'ultra-fast' : 'fast'
+      estimatedTokens: shouldUseStatic ? 1000 : 2500,
+      priority: shouldUseStatic ? 'ultra-fast' : 'fast'
     }
   }
 }

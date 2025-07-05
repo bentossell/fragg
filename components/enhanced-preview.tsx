@@ -13,7 +13,13 @@ import { ExecutionResult } from '@/lib/types'
 import { Card } from './ui/card'
 import { Button } from './ui/button'
 import { sandboxRefreshManager } from '@/lib/sandbox/refresh-manager'
-import { Pencil, Check, X } from 'lucide-react'
+import { Pencil, Check, X, ChevronLeft, ChevronRight } from 'lucide-react'
+
+interface FragmentVersion {
+  fragment: DeepPartial<FragmentSchema>
+  result?: ExecutionResult
+  timestamp: number
+}
 
 interface EnhancedPreviewProps {
   fragment?: DeepPartial<FragmentSchema>
@@ -28,6 +34,9 @@ interface EnhancedPreviewProps {
   onAppNameChange?: (name: string) => void
   onSave?: () => void
   onSandboxRecreate?: (fragment: DeepPartial<FragmentSchema>) => Promise<ExecutionResult>
+  fragmentVersions?: FragmentVersion[]
+  currentVersionIndex?: number
+  onVersionChange?: (index: number) => void
 }
 
 export function EnhancedPreview({
@@ -42,7 +51,10 @@ export function EnhancedPreview({
   userId,
   onAppNameChange,
   onSave,
-  onSandboxRecreate
+  onSandboxRecreate,
+  fragmentVersions,
+  currentVersionIndex,
+  onVersionChange
 }: EnhancedPreviewProps) {
   const [generationStage, setGenerationStage] = useState<'analyzing' | 'generating' | 'building' | 'deploying'>('analyzing')
   const [generationProgress, setGenerationProgress] = useState(0)
@@ -241,6 +253,33 @@ export function EnhancedPreview({
                     </Button>
                   </>
                 )}
+              </div>
+            )}
+            
+            {/* Version navigation */}
+            {fragmentVersions && fragmentVersions.length > 1 && currentVersionIndex !== undefined && onVersionChange && (
+              <div className="flex items-center gap-1 ml-4">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => onVersionChange(currentVersionIndex - 1)}
+                  disabled={currentVersionIndex === 0}
+                >
+                  <ChevronLeft className="h-3 w-3" />
+                </Button>
+                <span className="text-xs text-muted-foreground px-2">
+                  v{currentVersionIndex + 1} / {fragmentVersions.length}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => onVersionChange(currentVersionIndex + 1)}
+                  disabled={currentVersionIndex === fragmentVersions.length - 1}
+                >
+                  <ChevronRight className="h-3 w-3" />
+                </Button>
               </div>
             )}
           </div>

@@ -17,6 +17,7 @@ import { NavBar } from '@/components/navbar'
 import { AppLibrary, SavedApp } from '@/lib/storage/app-library'
 import { singleActiveSandboxManager } from '@/lib/sandbox/single-active-manager'
 import { sandboxReconnectionManager } from '@/lib/sandbox/reconnect'
+import { sandboxVersionWarmup } from '@/lib/storage/version-warmup'
 import { Button } from '@/components/ui/button'
 import { Save, Plus, FolderOpen } from 'lucide-react'
 import { toast } from '@/components/ui/use-toast'
@@ -244,8 +245,16 @@ function SimplifiedHomeContent() {
           result,
           timestamp: Date.now()
         }
-        setFragmentVersions(prev => [...prev, newVersion])
-        setCurrentVersionIndex(fragmentVersions.length)
+        const newVersions = [...fragmentVersions, newVersion]
+        setFragmentVersions(newVersions)
+        setCurrentVersionIndex(newVersions.length - 1)
+        
+        // Warm up adjacent versions for instant switching
+        sandboxVersionWarmup.warmupAdjacentVersions(
+          newVersions,
+          newVersions.length - 1,
+          currentAppId || undefined
+        )
         
         // Update the last message with the result
         const currentMessages = messagesRef.current
@@ -267,7 +276,7 @@ function SimplifiedHomeContent() {
         )
         
         // Update fragment versions before saving
-        const updatedFragmentVersions = [...fragmentVersions, newVersion]
+        const updatedFragmentVersions = [...newVersions]
         
         const savedApp = appLibrary.saveApp({
           id: currentAppId || undefined,
@@ -337,15 +346,76 @@ function SimplifiedHomeContent() {
   }
 
   // Version navigation functions
-  const navigateToVersion = useCallback((index: number) => {
+  const navigateToVersion = useCallback(async (index: number) => {
     if (index >= 0 && index < fragmentVersions.length) {
       const version = fragmentVersions[index]
       setFragment(version.fragment)
-      setResult(version.result)
       setCurrentVersionIndex(index)
       setCurrentTab('fragment')
+      
+      // Check if we have a cached sandbox first
+      const cachedResult = sandboxVersionWarmup.getCachedSandbox(version.fragment, currentAppId || undefined)
+      if (cachedResult) {
+        setResult(cachedResult)
+        setIsPreviewLoading(false)
+        
+        // Warm up adjacent versions for next navigation
+        sandboxVersionWarmup.warmupAdjacentVersions(fragmentVersions, index, currentAppId || undefined)
+        return
+      }
+      
+      // Create a new sandbox if not cached
+      if (version.fragment) {
+        setIsPreviewLoading(true)
+        try {
+          const newResult = await sandboxVersionWarmup.getOrCreateSandbox(
+            version.fragment,
+            currentAppId || undefined
+          )
+          
+          if (newResult) {
+            setResult(newResult)
+            
+            // Update the version with the new sandbox result
+            const updatedVersions = [...fragmentVersions]
+            updatedVersions[index] = {
+              ...version,
+              result: newResult
+            }
+            setFragmentVersions(updatedVersions)
+            
+            // Auto-save the updated versions
+            if (currentAppId) {
+              const app = appLibrary.getApp(currentAppId)
+              if (app) {
+                appLibrary.saveApp({
+                  ...app,
+                  fragmentVersions: updatedVersions,
+                  currentVersionIndex: index,
+                  sandboxConfig: newResult,
+                  lastSandboxId: newResult.sbxId
+                })
+              }
+            }
+            
+            // Warm up adjacent versions for next navigation
+            sandboxVersionWarmup.warmupAdjacentVersions(fragmentVersions, index, currentAppId || undefined)
+          } else {
+            throw new Error('Failed to create sandbox')
+          }
+        } catch (error) {
+          console.error('Error creating sandbox for version:', error)
+          toast({
+            title: 'Failed to load preview',
+            description: 'Could not create sandbox for this version.',
+            variant: 'destructive'
+          })
+        } finally {
+          setIsPreviewLoading(false)
+        }
+      }
     }
-  }, [fragmentVersions])
+  }, [fragmentVersions, currentAppId])
 
   const goToPreviousVersion = useCallback(() => {
     if (currentVersionIndex > 0) {
@@ -436,6 +506,11 @@ function SimplifiedHomeContent() {
     // Close current sandbox
     await singleActiveSandboxManager.closeCurrent()
     
+    // Clear sandbox cache
+    if (currentAppId) {
+      sandboxVersionWarmup.clearSessionCache(currentAppId)
+    }
+    
     // Clear state
     setMessages([])
     setChatInput('')
@@ -456,7 +531,7 @@ function SimplifiedHomeContent() {
     // Reset history
     setHistory([{ messages: [], fragment: undefined, result: undefined }])
     setHistoryIndex(0)
-  }, [])
+  }, [currentAppId])
 
   const handleSaveToLibrary = useCallback(() => {
     const name = appName || `App ${new Date().toLocaleDateString()}`
@@ -586,6 +661,13 @@ function SimplifiedHomeContent() {
               result
             }
             setFragmentVersions(updatedVersions)
+            
+            // Warm up adjacent versions for instant switching
+            sandboxVersionWarmup.warmupAdjacentVersions(
+              updatedVersions,
+              versionIndex,
+              app.id
+            )
           }
           
           // Update the app with the new sandbox config
@@ -650,6 +732,12 @@ function SimplifiedHomeContent() {
 
   const handleClear = useCallback(() => {
     stop()
+    
+    // Clear sandbox cache
+    if (currentAppId) {
+      sandboxVersionWarmup.clearSessionCache(currentAppId)
+    }
+    
     const clearedState = {
       messages: [],
       fragment: undefined,
@@ -664,7 +752,7 @@ function SimplifiedHomeContent() {
     setFragmentVersions([])
     setCurrentVersionIndex(-1)
     addToHistory(clearedState.messages, clearedState.fragment, clearedState.result)
-  }, [stop, addToHistory])
+  }, [stop, addToHistory, currentAppId])
 
   const handleUndo = useCallback(() => {
     if (historyIndex > 0) {
@@ -868,6 +956,9 @@ function SimplifiedHomeContent() {
               })
               return await response.json()
             }}
+            fragmentVersions={fragmentVersions}
+            currentVersionIndex={currentVersionIndex}
+            onVersionChange={navigateToVersion}
           />
         ) : (
           <Preview

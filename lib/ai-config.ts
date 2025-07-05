@@ -13,13 +13,13 @@ export const openrouter = createOpenAI({
 // Model presets for different use cases
 export const models = {
   // Fast, cheap model for simple tasks
-  fast: 'anthropic/claude-3.5-haiku',
+  fast: 'google/gemini-2.5-flash-lite-preview-06-17',
   
   // Balanced model for app generation (default)
-  balanced: 'anthropic/claude-sonnet-4',
+  balanced: 'google/gemini-2.5-flash-lite-preview-06-17',
   
   // Powerful model for complex apps
-  powerful: 'anthropic/claude-opus-4',
+  powerful: 'google/gemini-2.5-flash-lite-preview-06-17',
   
   // Cost-optimized (routes to cheapest)
   cheap: 'deepseek/deepseek-chat:free',

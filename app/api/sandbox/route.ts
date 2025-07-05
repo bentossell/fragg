@@ -8,6 +8,55 @@ const sandboxTimeout = 10 * 60 * 1000 // 10 minute in ms
 
 export const maxDuration = 60
 
+// Helper function to detect if a file is binary based on its extension
+function isBinaryFile(filePath: string): boolean {
+  const binaryExtensions = [
+    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.ico', '.svg',
+    '.pdf', '.zip', '.tar', '.gz', '.mp3', '.mp4', '.wav', '.avi',
+    '.mov', '.wmv', '.flv', '.mkv', '.woff', '.woff2', '.ttf', '.eot',
+    '.otf', '.bin', '.exe', '.dll', '.so', '.dylib'
+  ]
+  
+  const ext = filePath.toLowerCase().match(/\.[^.]*$/)?.[0] || ''
+  return binaryExtensions.includes(ext)
+}
+
+// Helper function to process file content for binary files
+function processBinaryContent(content: string, filePath: string): Buffer {
+  // Check if content is base64 encoded
+  if (content.startsWith('data:')) {
+    // Extract base64 data from data URL
+    const base64Match = content.match(/^data:[^;]+;base64,(.+)$/)
+    if (base64Match) {
+      return Buffer.from(base64Match[1], 'base64')
+    }
+  }
+  
+  // Try to decode as base64 directly
+  try {
+    // Check if it's valid base64
+    const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/
+    if (base64Regex.test(content.replace(/\s/g, ''))) {
+      return Buffer.from(content, 'base64')
+    }
+  } catch (e) {
+    // Not base64, treat as raw string
+  }
+  
+  // Default: convert string to buffer
+  return Buffer.from(content)
+}
+
+// Helper function to convert Buffer to ArrayBuffer
+function bufferToArrayBuffer(buffer: Buffer): ArrayBuffer {
+  const arrayBuffer = new ArrayBuffer(buffer.length)
+  const view = new Uint8Array(arrayBuffer)
+  for (let i = 0; i < buffer.length; i++) {
+    view[i] = buffer[i]
+  }
+  return arrayBuffer
+}
+
 export async function POST(req: Request) {
   try {
     const {
@@ -87,24 +136,57 @@ export async function POST(req: Request) {
       if ((fragment as any).files && Array.isArray((fragment as any).files)) {
         console.log('Processing fragment.files array:', (fragment as any).files.length, 'files')
         for (const file of (fragment as any).files) {
-          const codeWithAI = injectAI(file.content, fragment.template, file.path, process.env.OPENROUTER_API_KEY)
-          await sbx.files.write(file.path, codeWithAI)
-          console.log(`Wrote file: ${file.path} (${file.content.length} chars) in ${sbx.sandboxId}`)
+          if (isBinaryFile(file.path)) {
+            // Handle binary files without AI injection
+            console.log(`Processing binary file: ${file.path}`)
+            const binaryContent = processBinaryContent(file.content, file.path)
+            // Convert Buffer to ArrayBuffer for compatibility with the API
+            const arrayBuffer = bufferToArrayBuffer(binaryContent)
+            await sbx.files.write(file.path, arrayBuffer)
+            console.log(`Wrote binary file: ${file.path} (${binaryContent.length} bytes) in ${sbx.sandboxId}`)
+          } else {
+            // Handle text files with AI injection
+            const codeWithAI = injectAI(file.content, fragment.template, file.path, process.env.OPENROUTER_API_KEY)
+            await sbx.files.write(file.path, codeWithAI)
+            console.log(`Wrote text file: ${file.path} (${file.content.length} chars) in ${sbx.sandboxId}`)
+          }
         }
       } else if (Array.isArray(fragment.code)) {
         // Handle array format
         console.log('Processing fragment.code array:', fragment.code.length, 'files')
         for (const file of fragment.code) {
-          const codeWithAI = injectAI(file.file_content, fragment.template, file.file_path, process.env.OPENROUTER_API_KEY)
-          await sbx.files.write(file.file_path, codeWithAI)
-          console.log(`Copied file with AI to ${file.file_path} in ${sbx.sandboxId}`)
+          if (isBinaryFile(file.file_path)) {
+            // Handle binary files without AI injection
+            console.log(`Processing binary file: ${file.file_path}`)
+            const binaryContent = processBinaryContent(file.file_content, file.file_path)
+            // Convert Buffer to ArrayBuffer for compatibility with the API
+            const arrayBuffer = bufferToArrayBuffer(binaryContent)
+            await sbx.files.write(file.file_path, arrayBuffer)
+            console.log(`Wrote binary file: ${file.file_path} (${binaryContent.length} bytes) in ${sbx.sandboxId}`)
+          } else {
+            // Handle text files with AI injection
+            const codeWithAI = injectAI(file.file_content, fragment.template, file.file_path, process.env.OPENROUTER_API_KEY)
+            await sbx.files.write(file.file_path, codeWithAI)
+            console.log(`Wrote text file: ${file.file_path} in ${sbx.sandboxId}`)
+          }
         }
       } else if (typeof fragment.code === 'string' && fragment.file_path) {
         // Handle string format
         console.log('Processing fragment.code string')
-        const codeWithAI = injectAI(fragment.code, fragment.template, fragment.file_path, process.env.OPENROUTER_API_KEY)
-        await sbx.files.write(fragment.file_path, codeWithAI)
-        console.log(`Copied file with AI to ${fragment.file_path} in ${sbx.sandboxId}`)
+        if (isBinaryFile(fragment.file_path)) {
+          // Handle binary file without AI injection
+          console.log(`Processing binary file: ${fragment.file_path}`)
+          const binaryContent = processBinaryContent(fragment.code, fragment.file_path)
+          // Convert Buffer to ArrayBuffer for compatibility with the API
+          const arrayBuffer = bufferToArrayBuffer(binaryContent)
+          await sbx.files.write(fragment.file_path, arrayBuffer)
+          console.log(`Wrote binary file: ${fragment.file_path} (${binaryContent.length} bytes) in ${sbx.sandboxId}`)
+        } else {
+          // Handle text file with AI injection
+          const codeWithAI = injectAI(fragment.code, fragment.template, fragment.file_path, process.env.OPENROUTER_API_KEY)
+          await sbx.files.write(fragment.file_path, codeWithAI)
+          console.log(`Copied file with AI to ${fragment.file_path} in ${sbx.sandboxId}`)
+        }
       } else {
         console.warn('Fragment has code but no recognized format')
       }

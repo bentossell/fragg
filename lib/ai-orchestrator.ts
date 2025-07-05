@@ -6,6 +6,7 @@ import {
   CodeAgent
 } from './ai-agents'
 import { componentLibrary } from './component-library'
+import { CodeDiffer, DiffContext, CodeDiff } from './code-differ'
 
 export interface GenerationResult {
   code: string
@@ -21,6 +22,9 @@ export interface GenerationResult {
     errors: string[]
     fallbacks: number
     cacheHits: number
+    isIteration?: boolean
+    diffMode?: boolean
+    appliedDiffs?: number
   }
 }
 
@@ -33,13 +37,28 @@ export interface StreamingUpdate {
 export class CodeOrchestrator {
   private cache = new Map<string, GenerationResult>()
   private maxCacheSize = 100
+  private lastGeneratedCode = new Map<string, string>() // Track last generated code for diff mode
   
   // Main generation method with caching
   async generateApp(
     userPrompt: string, 
-    onUpdate?: (update: StreamingUpdate) => void
+    onUpdate?: (update: StreamingUpdate) => void,
+    existingCode?: string // New parameter for existing code
   ): Promise<GenerationResult> {
     const startTime = Date.now()
+    
+    // Detect if this is an iteration request
+    const isIteration = CodeDiffer.isIterationRequest(userPrompt, existingCode || this.getLastGeneratedCode())
+    
+    // If it's an iteration and we have existing code, use diff mode
+    if (isIteration && (existingCode || this.getLastGeneratedCode())) {
+      return this.generateWithDiffs(
+        userPrompt, 
+        existingCode || this.getLastGeneratedCode()!, 
+        onUpdate, 
+        startTime
+      )
+    }
     
     // Check cache first
     const cacheKey = this.createCacheKey(userPrompt)
@@ -190,6 +209,9 @@ export class CodeOrchestrator {
       // Cache the result
       this.cacheResult(cacheKey, result)
       
+      // Store the generated code for potential future iterations
+      this.storeLastGeneratedCode(assembledCode)
+      
       onUpdate?.({
         type: 'complete',
         data: result,
@@ -212,6 +234,264 @@ export class CodeOrchestrator {
       
       return fallbackResult
     }
+  }
+  
+  // New method for diff-based generation
+  private async generateWithDiffs(
+    userPrompt: string,
+    existingCode: string,
+    onUpdate?: (update: StreamingUpdate) => void,
+    startTime: number = Date.now()
+  ): Promise<GenerationResult> {
+    onUpdate?.({
+      type: 'triage',
+      data: { status: 'analyzing_diff', prompt: userPrompt, diffMode: true },
+      timestamp: Date.now()
+    })
+    
+    try {
+      // Identify target sections
+      const { sections, confidence } = CodeDiffer.identifyTargetSections(userPrompt, existingCode)
+      
+      onUpdate?.({
+        type: 'agent_start',
+        data: { 
+          mode: 'diff',
+          targetSections: sections,
+          confidence,
+          message: 'Generating targeted code changes'
+        },
+        timestamp: Date.now()
+      })
+      
+      // Get the language/framework from existing code
+      const language = this.detectLanguage(existingCode)
+      const context: DiffContext = {
+        existingCode,
+        language,
+        framework: this.detectFramework(existingCode)
+      }
+      
+      // Call AI to generate diffs
+      const diffPrompt = CodeDiffer.createDiffPrompt(userPrompt, existingCode, sections, language)
+      const aiResponse = await this.callAIForDiffs(diffPrompt)
+      const diffs = CodeDiffer.parseDiffResponse(aiResponse)
+      
+      if (diffs.length === 0) {
+        // Fallback to full regeneration if no diffs could be parsed
+        onUpdate?.({
+          type: 'agent_complete',
+          data: { 
+            mode: 'diff',
+            fallback: true,
+            message: 'Falling back to full regeneration'
+          },
+          timestamp: Date.now()
+        })
+        
+        return this.generateWithFallback(userPrompt, existingCode, onUpdate, startTime)
+      }
+      
+      // Apply diffs
+      onUpdate?.({
+        type: 'assembly',
+        data: { 
+          status: 'applying_diffs', 
+          diffCount: diffs.length 
+        },
+        timestamp: Date.now()
+      })
+      
+      const result = CodeDiffer.applyDiffs(context, diffs)
+      
+      if (!result.success) {
+        // Fallback if diff application failed
+        return this.generateWithFallback(userPrompt, existingCode, onUpdate, startTime)
+      }
+      
+      // Store the updated code
+      this.storeLastGeneratedCode(result.modifiedCode)
+      
+      const executionTime = Date.now() - startTime
+      
+      onUpdate?.({
+        type: 'complete',
+        data: {
+          code: result.modifiedCode,
+          diffMode: true,
+          appliedDiffs: result.appliedDiffs.length,
+          executionTime
+        },
+        timestamp: Date.now()
+      })
+      
+      return {
+        code: result.modifiedCode,
+        template: this.detectTemplate(result.modifiedCode),
+        dependencies: this.extractDependenciesFromCode(result.modifiedCode),
+        executionTime,
+        agentResults: [{
+          agentName: 'DiffAgent',
+          code: result.modifiedCode,
+          dependencies: [],
+          metadata: { 
+            type: 'diff', 
+            appliedDiffs: result.appliedDiffs,
+            targetSections: sections
+          },
+          executionTime
+        }],
+        metadata: {
+          triageTime: 0,
+          generationTime: executionTime,
+          assemblyTime: 0,
+          totalAgents: 1,
+          errors: result.errors || [],
+          fallbacks: 0,
+          cacheHits: 0,
+          isIteration: true,
+          diffMode: true,
+          appliedDiffs: result.appliedDiffs.length
+        }
+      }
+    } catch (error) {
+      console.error('Diff generation failed:', error)
+      return this.generateWithFallback(userPrompt, existingCode, onUpdate, startTime)
+    }
+  }
+  
+  // Helper method to call AI for diffs
+  private async callAIForDiffs(prompt: string): Promise<string> {
+    const { openrouter } = await import('@/lib/ai-config')
+    const model = openrouter('anthropic/claude-3.5-sonnet') // Use best model for diffs
+    
+    const response = await model.doGenerate({
+      inputFormat: 'prompt',
+      mode: { type: 'regular' },
+      prompt: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+      temperature: 0.2, // Lower temperature for more precise diffs
+      maxTokens: 2000,
+      topP: 0.9
+    })
+    
+    return response.text || ''
+  }
+  
+  // Fallback to full regeneration with context
+  private async generateWithFallback(
+    userPrompt: string,
+    existingCode: string,
+    onUpdate?: (update: StreamingUpdate) => void,
+    startTime: number = Date.now()
+  ): Promise<GenerationResult> {
+    const language = this.detectLanguage(existingCode)
+    const fallbackPrompt = CodeDiffer.createFallbackPrompt(userPrompt, existingCode, language)
+    
+    const { openrouter } = await import('@/lib/ai-config')
+    const model = openrouter('anthropic/claude-3.5-sonnet')
+    
+    const response = await model.doGenerate({
+      inputFormat: 'prompt',
+      mode: { type: 'regular' },
+      prompt: [{ role: 'user', content: [{ type: 'text', text: fallbackPrompt }] }],
+      temperature: 0.3,
+      maxTokens: 4000,
+      topP: 0.9
+    })
+    
+    const code = this.cleanGeneratedCode(response.text || '')
+    this.storeLastGeneratedCode(code)
+    
+    const executionTime = Date.now() - startTime
+    
+    return {
+      code,
+      template: this.detectTemplate(code),
+      dependencies: this.extractDependenciesFromCode(code),
+      executionTime,
+      agentResults: [{
+        agentName: 'FallbackAgent',
+        code,
+        dependencies: [],
+        metadata: { type: 'fallback', reason: 'diff_failed' },
+        executionTime
+      }],
+      metadata: {
+        triageTime: 0,
+        generationTime: executionTime,
+        assemblyTime: 0,
+        totalAgents: 1,
+        errors: ['Diff mode failed, used full regeneration'],
+        fallbacks: 1,
+        cacheHits: 0,
+        isIteration: true,
+        diffMode: false
+      }
+    }
+  }
+  
+  // Helper methods for code analysis
+  private detectLanguage(code: string): string {
+    if (code.includes('import React') || code.includes('export default')) return 'typescript'
+    if (code.includes('import streamlit') || code.includes('import gradio')) return 'python'
+    if (code.includes('<!DOCTYPE html>') || code.includes('<html')) return 'html'
+    return 'javascript'
+  }
+  
+  private detectFramework(code: string): string | undefined {
+    if (code.includes('import React')) return 'react'
+    if (code.includes('import { NextApiRequest')) return 'nextjs'
+    if (code.includes('import streamlit')) return 'streamlit'
+    if (code.includes('import gradio')) return 'gradio'
+    return undefined
+  }
+  
+  private detectTemplate(code: string): string {
+    if (this.detectFramework(code) === 'nextjs') return 'nextjs-developer'
+    if (this.detectFramework(code) === 'streamlit') return 'streamlit-developer'
+    if (this.detectFramework(code) === 'gradio') return 'gradio-developer'
+    return 'static-html'
+  }
+  
+  private extractDependenciesFromCode(code: string): string[] {
+    const deps = new Set<string>()
+    
+    // Extract from import statements
+    const importMatches = code.matchAll(/import\s+.*?\s+from\s+['"]([^'"]+)['"]/g)
+    for (const match of importMatches) {
+      const dep = match[1]
+      if (!dep.startsWith('.') && !dep.startsWith('@/')) {
+        deps.add(dep.split('/')[0]) // Get package name
+      }
+    }
+    
+    // Python imports
+    const pyImportMatches = code.matchAll(/import\s+(\w+)|from\s+(\w+)/g)
+    for (const match of pyImportMatches) {
+      const dep = match[1] || match[2]
+      if (dep && !['os', 'sys', 'json', 'time', 'datetime'].includes(dep)) {
+        deps.add(dep)
+      }
+    }
+    
+    return Array.from(deps)
+  }
+  
+  private cleanGeneratedCode(code: string): string {
+    return code
+      .replace(/```[\w]*\n?/g, '')
+      .replace(/^\s*\n/gm, '')
+      .trim()
+  }
+  
+  // Store last generated code for future iterations
+  private storeLastGeneratedCode(code: string): void {
+    // Simple storage - in production might want to key by user/session
+    this.lastGeneratedCode.set('latest', code)
+  }
+  
+  private getLastGeneratedCode(): string | undefined {
+    return this.lastGeneratedCode.get('latest')
   }
   
   // Assemble code based on stack type

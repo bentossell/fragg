@@ -2,10 +2,11 @@ import { Message } from '@/lib/messages'
 import { FragmentSchema } from '@/lib/schema'
 import { ExecutionResult } from '@/lib/types'
 import { DeepPartial } from 'ai'
-import { LoaderIcon, Terminal, Edit2, Check, X } from 'lucide-react'
+import { LoaderIcon, Terminal, Edit2, Check, X, Zap, Clock, Code } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
 import { Button } from './ui/button'
+import { Progress } from './ui/progress'
 
 export function Chat({
   messages,
@@ -48,6 +49,45 @@ export function Chat({
     setEditingIndex(null)
     setEditingContent('')
   }
+
+  // Extract generation progress from the last assistant message
+  const getGenerationProgress = () => {
+    if (!isLoading) return null
+    
+    const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant')
+    if (!lastAssistantMessage) return null
+    
+    const commentary = lastAssistantMessage.content.find(c => c.type === 'text')?.text || ''
+    
+    // Parse different stages from commentary
+    if (commentary.includes('Analyzing your request')) {
+      return { stage: 'triage', progress: 10, message: 'Analyzing your request...' }
+    } else if (commentary.includes('Selected') && commentary.includes('stack')) {
+      return { stage: 'triage', progress: 25, message: commentary }
+    } else if (commentary.includes('Running') && commentary.includes('agents')) {
+      const match = commentary.match(/Running (\d+) specialized agents/)
+      const agentCount = match ? parseInt(match[1]) : 0
+      return { stage: 'agents', progress: 40, message: commentary, agentCount }
+    } else if (commentary.includes('Processing...')) {
+      const match = commentary.match(/\((\d+)\/(\d+) agents complete\)/)
+      if (match) {
+        const completed = parseInt(match[1])
+        const total = parseInt(match[2])
+        const progress = 40 + (35 * completed / total)
+        return { stage: 'agents', progress, message: commentary, completed, total }
+      }
+    } else if (commentary.includes('Assembling final application')) {
+      return { stage: 'assembly', progress: 85, message: 'Assembling final application...' }
+    } else if (commentary.includes('Generation complete')) {
+      return { stage: 'complete', progress: 100, message: commentary }
+    } else if (commentary.includes('Generated using instant template')) {
+      return { stage: 'instant', progress: 100, message: commentary }
+    }
+    
+    return null
+  }
+
+  const generationProgress = getGenerationProgress()
 
   return (
     <div
@@ -166,7 +206,42 @@ export function Chat({
           </div>
         )
       })}
-      {isLoading && (
+      
+      {isLoading && generationProgress && (
+        <div className="flex flex-col gap-3 px-4 py-3 bg-accent/50 dark:bg-white/5 rounded-xl animate-in fade-in duration-300">
+          <div className="flex items-center gap-2">
+            {generationProgress.stage === 'instant' ? (
+              <Zap className="w-4 h-4 text-green-500" />
+            ) : generationProgress.stage === 'agents' ? (
+              <Code className="w-4 h-4 text-blue-500" />
+            ) : (
+              <Clock className="w-4 h-4 text-orange-500" />
+            )}
+            <span className="text-sm font-medium">{generationProgress.message}</span>
+          </div>
+          
+          {generationProgress.progress < 100 && (
+            <Progress value={generationProgress.progress} className="h-2" />
+          )}
+          
+          {generationProgress.stage === 'agents' && generationProgress.total && (
+            <div className="flex gap-1">
+              {Array.from({ length: generationProgress.total }).map((_, i) => (
+                <div
+                  key={i}
+                  className={`h-1.5 flex-1 rounded-full transition-colors ${
+                    i < (generationProgress.completed || 0)
+                      ? 'bg-blue-500'
+                      : 'bg-gray-300 dark:bg-gray-700'
+                  }`}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      
+      {isLoading && !generationProgress && (
         <div className="flex items-center gap-1 text-sm text-muted-foreground animate-in fade-in duration-300">
           <LoaderIcon strokeWidth={2} className="animate-spin w-4 h-4" />
           <span className="flex items-center gap-1">

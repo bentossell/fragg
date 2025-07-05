@@ -71,14 +71,6 @@ export function NavBar({
         <Button
           variant="outline"
           size="sm"
-          onClick={() => window.location.href = '/real-time'}
-        >
-          <Zap className="h-4 w-4 mr-2" />
-          Real-Time Gen
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
           onClick={() => window.location.href = '/library'}
         >
           <FolderOpen className="h-4 w-4 mr-2" />

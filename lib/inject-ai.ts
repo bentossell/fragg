@@ -47,7 +47,7 @@ function injectAIForHTML(code: string, template: string, apiKey?: string): strin
                 },
                 body: JSON.stringify({
                   messages: Array.isArray(messages) ? messages : [{ role: 'user', content: messages }],
-                  model: options.model || 'anthropic/claude-3-haiku',
+                  model: options.model || 'google/gemini-2.5-flash-lite-preview-06-17',
                   stream: options.stream || false,
                   max_tokens: options.max_tokens || 1000
                 })
@@ -65,16 +65,16 @@ function injectAIForHTML(code: string, template: string, apiKey?: string): strin
             }
           },
           
-          async ask(prompt, model = 'anthropic/claude-3-haiku') {
+          async ask(prompt, model = 'google/gemini-2.5-flash-lite-preview-06-17') {
             return this.chat([{ role: 'user', content: prompt }], { model });
           },
           
           models: {
-            fast: 'anthropic/claude-3-haiku',
-            balanced: 'anthropic/claude-3.5-sonnet',
-            powerful: 'openai/gpt-4-turbo',
-            cheap: 'anthropic/claude-3-haiku:floor',
-            turbo: 'anthropic/claude-3.5-sonnet:nitro'
+            fast: 'google/gemini-2.5-flash-lite-preview-06-17',
+            balanced: 'google/gemini-2.5-flash-lite-preview-06-17',
+            powerful: 'google/gemini-2.5-flash-lite-preview-06-17',
+            cheap: 'deepseek/deepseek-chat:free',
+            turbo: 'google/gemini-2.5-flash'
           }
         };
         
@@ -133,7 +133,7 @@ function injectAIForPython(code: string, template: string, apiKey?: string): str
               },
               body: JSON.stringify({
                 messages: Array.isArray(messages) ? messages : [{ role: 'user', content: messages }],
-                model: options.model || 'anthropic/claude-3-haiku',
+                model: options.model || 'google/gemini-2.5-flash-lite-preview-06-17',
                 stream: options.stream || false,
                 max_tokens: options.max_tokens || 1000
               })
@@ -151,16 +151,16 @@ function injectAIForPython(code: string, template: string, apiKey?: string): str
           }
         },
         
-        async ask(prompt, model = 'anthropic/claude-3-haiku') {
+        async ask(prompt, model = 'google/gemini-2.5-flash-lite-preview-06-17') {
           return this.chat([{ role: 'user', content: prompt }], { model });
         },
         
         models: {
-          fast: 'anthropic/claude-3-haiku',
-          balanced: 'anthropic/claude-3.5-sonnet',
-          powerful: 'openai/gpt-4-turbo',
-          cheap: 'anthropic/claude-3-haiku:floor',
-          turbo: 'anthropic/claude-3.5-sonnet:nitro'
+          fast: 'google/gemini-2.5-flash-lite-preview-06-17',
+          balanced: 'google/gemini-2.5-flash-lite-preview-06-17',
+          powerful: 'google/gemini-2.5-flash-lite-preview-06-17',
+          cheap: 'deepseek/deepseek-chat:free',
+          turbo: 'google/gemini-2.5-flash'
         }
       };
       
@@ -181,7 +181,7 @@ function injectAIForPython(code: string, template: string, apiKey?: string): str
 import requests
 import json
 
-def ai_ask(prompt, model="anthropic/claude-3-haiku"):
+def ai_ask(prompt, model="google/gemini-2.5-flash-lite-preview-06-17"):
     """Ask AI a question and get a response."""
     try:
         response = requests.post('https://openrouter.ai/api/v1/chat/completions', 
@@ -207,7 +207,7 @@ def ai_ask(prompt, model="anthropic/claude-3-haiku"):
     except Exception as e:
         return f"AI Error: {str(e)}"
 
-def ai_chat(messages, model="anthropic/claude-3-haiku"):
+def ai_chat(messages, model="google/gemini-2.5-flash-lite-preview-06-17"):
     """Chat with AI using a list of messages."""
     try:
         response = requests.post('https://openrouter.ai/api/v1/chat/completions',
@@ -235,11 +235,11 @@ def ai_chat(messages, model="anthropic/claude-3-haiku"):
 
 # Available AI models
 AI_MODELS = {
-    'fast': 'anthropic/claude-3-haiku',
-    'balanced': 'anthropic/claude-3.5-sonnet', 
-    'powerful': 'openai/gpt-4-turbo',
-    'cheap': 'anthropic/claude-3-haiku:floor',
-    'turbo': 'anthropic/claude-3.5-sonnet:nitro'
+    'fast': 'google/gemini-2.5-flash-lite-preview-06-17',
+    'balanced': 'google/gemini-2.5-flash-lite-preview-06-17', 
+    'powerful': 'google/gemini-2.5-flash-lite-preview-06-17',
+    'cheap': 'deepseek/deepseek-chat:free',
+    'turbo': 'google/gemini-2.5-flash'
 }
 
 print("🤖 AI capabilities loaded!")
