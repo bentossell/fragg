@@ -34,16 +34,37 @@ export class SingleActiveSandboxManager {
     if (this.currentSandbox) {
       // Import here to avoid circular dependencies
       const { sandboxReconnectionManager } = await import('./reconnect')
+      const { sandboxPool } = await import('./sandbox-pool')
+      const { getTemplate } = await import('../../lib/templates')
       
       try {
         console.log(`Closing sandbox for session ${this.currentSessionId}`)
-        await this.currentSandbox.kill()
+        
+        // Try to get template info from sandbox metadata
+        let template = 'nextjs-developer' as any
+        try {
+          const metadata = (this.currentSandbox as any).metadata
+          if (metadata?.template) {
+            template = metadata.template
+          }
+        } catch (e) {
+          console.log('Could not get template from sandbox metadata')
+        }
+        
+        // Release sandbox back to pool instead of killing it
+        sandboxPool.releaseSandbox(this.currentSandbox, template)
         
         if (this.currentSessionId) {
           sandboxReconnectionManager.clearSession(this.currentSessionId)
         }
       } catch (error) {
-        console.warn(`Error closing sandbox: ${error}`)
+        console.warn(`Error releasing sandbox: ${error}`)
+        // If release fails, kill the sandbox
+        try {
+          await this.currentSandbox.kill()
+        } catch (killError) {
+          console.warn(`Error killing sandbox: ${killError}`)
+        }
       } finally {
         this.currentSandbox = null
         this.currentSessionId = null

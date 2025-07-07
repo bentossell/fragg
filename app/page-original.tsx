@@ -18,7 +18,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useLocalStorage } from 'usehooks-ts'
 import { ChevronLeft } from 'lucide-react'
 import { useChatSessions } from '@/lib/hooks/use-chat-sessions'
-import { singleActiveSandboxManager } from '@/lib/sandbox/single-active-manager'
+import { singleActiveSandboxManager } from '@/archive/sandbox/single-active-manager'
 
 export default function Home() {
   const [chatInput, setChatInput] = useLocalStorage('chat', '')

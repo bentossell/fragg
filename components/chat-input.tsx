@@ -1,5 +1,6 @@
 'use client'
 
+import React, { SetStateAction, useEffect, useMemo, useState, useCallback, memo } from 'react'
 import { RepoBanner } from './repo-banner'
 import { Button } from '@/components/ui/button'
 import {
@@ -9,11 +10,12 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { isFileInArray } from '@/lib/utils'
-import { ArrowUp, Paperclip, Square, X } from 'lucide-react'
-import { SetStateAction, useEffect, useMemo, useState, useCallback } from 'react'
+import { ArrowUp, Paperclip, Square, X, GitBranch } from 'lucide-react'
 import TextareaAutosize from 'react-textarea-autosize'
+import { useDebounce, useDebouncedCallback } from '@/lib/hooks/use-debounce'
+import { usePerformanceMonitor, useRerenderTracker } from '@/lib/performance-monitor'
 
-export function ChatInput({
+export const ChatInput = memo(function ChatInput({
   retry,
   isErrored,
   errorMessage,
@@ -27,6 +29,7 @@ export function ChatInput({
   files,
   handleFileChange,
   children,
+  onDiffUpdate,
 }: {
   retry: () => void
   isErrored: boolean
@@ -41,7 +44,13 @@ export function ChatInput({
   files: File[]
   handleFileChange: (change: SetStateAction<File[]>) => void
   children: React.ReactNode
+  onDiffUpdate?: () => void
 }) {
+  // Performance monitoring
+  const { trackNetworkRequest } = usePerformanceMonitor('ChatInput')
+  useRerenderTracker('ChatInput', { 
+    isErrored, isLoading, isRateLimited, input: input.slice(0, 50), filesCount: files.length 
+  })
   function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
     handleFileChange((prev) => {
       const newFiles = Array.from(e.target.files || [])
@@ -53,6 +62,11 @@ export function ChatInput({
   const handleFileRemove = useCallback((file: File) => {
     handleFileChange((prev) => prev.filter((f) => f !== file))
   }, [handleFileChange])
+
+  // Debounced input change for better performance
+  const debouncedInputChange = useDebouncedCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    handleInputChange(e)
+  }, 150, { leading: true, trailing: true })
 
   function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
     const items = Array.from(e.clipboardData.items)
@@ -76,7 +90,7 @@ export function ChatInput({
 
   const [dragActive, setDragActive] = useState(false)
 
-  function handleDrag(e: React.DragEvent) {
+  const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
     if (e.type === 'dragenter' || e.type === 'dragover') {
@@ -84,9 +98,9 @@ export function ChatInput({
     } else if (e.type === 'dragleave') {
       setDragActive(false)
     }
-  }
+  }, [])
 
-  function handleDrop(e: React.DragEvent) {
+  const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
     setDragActive(false)
@@ -103,7 +117,7 @@ export function ChatInput({
         return [...prev, ...uniqueFiles]
       })
     }
-  }
+  }, [handleFileChange])
 
   const filePreview = useMemo(() => {
     if (files.length === 0) return null
@@ -126,7 +140,7 @@ export function ChatInput({
     })
   }, [files, handleFileRemove])
 
-  function onEnter(e: React.KeyboardEvent<HTMLFormElement>) {
+  const onEnter = useCallback((e: React.KeyboardEvent<HTMLFormElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       if (e.currentTarget.checkValidity()) {
@@ -135,13 +149,20 @@ export function ChatInput({
         e.currentTarget.reportValidity()
       }
     }
-  }
+  }, [handleSubmit])
 
   useEffect(() => {
     if (!isMultiModal) {
       handleFileChange([])
     }
   }, [isMultiModal, handleFileChange])
+
+  const handleDiffUpdate = useCallback((e: React.FormEvent) => {
+    e.preventDefault()
+    if (onDiffUpdate) {
+      onDiffUpdate()
+    }
+  }, [onDiffUpdate])
 
   return (
     <form
@@ -227,7 +248,33 @@ export function ChatInput({
               {children}
               {files.length > 0 && filePreview}
             </div>
-            <div>
+            <div className="flex gap-2">
+              {onDiffUpdate && (
+                <TooltipProvider>
+                  <Tooltip delayDuration={0}>
+                    <TooltipTrigger asChild>
+                      <Button
+                        disabled={Boolean(isErrored || isLoading || !input.trim())}
+                        variant="outline"
+                        size="icon"
+                        type="button"
+                        className="rounded-xl h-10 w-10"
+                        onClick={handleDiffUpdate}
+                      >
+                        <GitBranch className="h-5 w-5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <div className="text-center">
+                        <div className="font-medium">Diff Update</div>
+                        <div className="text-xs text-muted-foreground">
+                          Make incremental changes instead of full regeneration
+                        </div>
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
               {!isLoading ? (
                 <TooltipProvider>
                   <Tooltip delayDuration={0}>
@@ -271,4 +318,4 @@ export function ChatInput({
       </div>
     </form>
   )
-}
+})

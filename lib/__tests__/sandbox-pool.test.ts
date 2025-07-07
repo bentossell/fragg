@@ -1,4 +1,4 @@
-import { SandboxPool } from '../sandbox-pool'
+import { SandboxPool } from '../../archive/sandbox/sandbox-pool'
 
 // Mock the Sandbox class
 const mockSandbox = {

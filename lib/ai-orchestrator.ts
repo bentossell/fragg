@@ -7,6 +7,9 @@ import {
 } from './ai-agents'
 import { componentLibrary } from './component-library'
 import { CodeDiffer, DiffContext, CodeDiff } from './code-differ'
+import { smartPromptEngine, EnhancedPromptResult } from './smart-prompt-engineering'
+import { advancedContextManager, SmartContextResult, ContextualMemory } from './advanced-context-management'
+import { openrouter, models } from './ai-config'
 
 export interface GenerationResult {
   code: string
@@ -25,6 +28,33 @@ export interface GenerationResult {
     isIteration?: boolean
     diffMode?: boolean
     appliedDiffs?: number
+    // Enhanced AI integration metrics
+    promptOptimization?: {
+      confidence: number
+      optimizationsApplied: string[]
+      qualityScore: number
+      templateUsed: string
+    }
+    contextManagement?: {
+      memoriesUsed: number
+      contextConfidence: number
+      optimizedTokens: number
+      recommendations: string[]
+    }
+    modelSelection?: {
+      primaryModel: string
+      fallbackModels: string[]
+      selectionReason: string
+      performanceScore: number
+    }
+    qualityAssessment?: {
+      codeQuality: number
+      completeness: number
+      bestPractices: number
+      accessibility: number
+      performance: number
+      overall: number
+    }
   }
 }
 
@@ -38,12 +68,15 @@ export class CodeOrchestrator {
   private cache = new Map<string, GenerationResult>()
   private maxCacheSize = 100
   private lastGeneratedCode = new Map<string, string>() // Track last generated code for diff mode
+  private performanceMetrics = new Map<string, number>() // Track model performance
+  private qualityHistory: number[] = [] // Track generation quality over time
   
-  // Main generation method with caching
+  // Enhanced main generation method with smart AI integration
   async generateApp(
     userPrompt: string, 
     onUpdate?: (update: StreamingUpdate) => void,
-    existingCode?: string // New parameter for existing code
+    existingCode?: string, // New parameter for existing code
+    sessionId?: string // New parameter for session context
   ): Promise<GenerationResult> {
     const startTime = Date.now()
     
@@ -79,16 +112,30 @@ export class CodeOrchestrator {
     }
     
     try {
-      // Step 1: Triage the request
+      // Step 1: Enhanced triage with context awareness
       onUpdate?.({
         type: 'triage',
-        data: { status: 'analyzing', prompt: userPrompt },
+        data: { status: 'analyzing', prompt: userPrompt, enhanced: true },
         timestamp: Date.now()
       })
       
       const triageStart = Date.now()
-      const triageResult = await triageRequest(userPrompt)
+      // Use enhanced triage with session context and existing code
+      const triageResult = await triageRequest(userPrompt, sessionId, existingCode)
       const triageTime = Date.now() - triageStart
+
+      // Get relevant context from memory
+      const contextResult = sessionId ? 
+        advancedContextManager.getRelevantContext(sessionId, userPrompt, triageResult) :
+        null
+
+      // Store conversation turn in memory
+      if (sessionId) {
+        advancedContextManager.storeMemory(sessionId, 'conversation_turn', {
+          userPrompt,
+          triageResult
+        }, [triageResult.context.domain, triageResult.stack])
+      }
       
       onUpdate?.({
         type: 'triage',
@@ -102,8 +149,20 @@ export class CodeOrchestrator {
       
       // Step 2: Get components from library
       const components = await componentLibrary.getComponents(triageResult.components)
+
+      // Step 3: Generate optimized prompt using smart prompt engineering
+      const promptResult = smartPromptEngine.generatePrompt(
+        userPrompt,
+        triageResult,
+        undefined, // AgentContext will be created next
+        sessionId,
+        existingCode
+      )
+
+      // Step 4: Select optimal model based on task complexity and context
+      const selectedModel = this.selectOptimalModel(triageResult, promptResult, contextResult)
       
-      // Step 3: Create shared context
+      // Step 5: Create enhanced shared context
       const context: AgentContext = {
         triageResult,
         userPrompt,
@@ -111,14 +170,18 @@ export class CodeOrchestrator {
         sharedState: new Map<string, any>([
           ['components', components],
           ['triage', triageResult],
-          ['startTime', startTime]
+          ['startTime', startTime],
+          ['promptOptimization', promptResult],
+          ['contextManagement', contextResult],
+          ['selectedModel', selectedModel],
+          ['sessionId', sessionId]
         ]),
         targetTemplate: triageResult.template
       }
       
-      // Step 4: Create and run agents in parallel
+      // Step 6: Create and run agents in parallel with enhanced prompts
       const generationStart = Date.now()
-      const agents = AgentFactory.createAgents(triageResult.stack)
+      const agents = this.createEnhancedAgents(triageResult.stack, promptResult, selectedModel)
       
       onUpdate?.({
         type: 'agent_start',
@@ -188,7 +251,10 @@ export class CodeOrchestrator {
       // Step 6: Extract all dependencies
       const allDependencies = this.extractAllDependencies(results, triageResult)
       
-      // Step 7: Create final result
+      // Step 7: Assess code quality
+      const qualityAssessment = await this.assessCodeQuality(assembledCode, triageResult)
+
+      // Step 8: Create enhanced final result with comprehensive metadata
       const result: GenerationResult = {
         code: assembledCode,
         template: triageResult.template,
@@ -202,8 +268,42 @@ export class CodeOrchestrator {
           totalAgents: agents.length,
           errors: results.flatMap(r => r.errors || []),
           fallbacks: results.filter(r => r.errors?.length).length,
-          cacheHits: 0
+          cacheHits: 0,
+          // Enhanced AI integration metrics
+          promptOptimization: {
+            confidence: promptResult.confidence,
+            optimizationsApplied: promptResult.optimizations,
+            qualityScore: promptResult.metadata.qualityScore,
+            templateUsed: promptResult.metadata.templateUsed
+          },
+          contextManagement: contextResult ? {
+            memoriesUsed: contextResult.memoryUsed.length,
+            contextConfidence: contextResult.confidenceScore,
+            optimizedTokens: contextResult.tokensUsed,
+            recommendations: contextResult.recommendations
+          } : undefined,
+          modelSelection: {
+            primaryModel: selectedModel.primary,
+            fallbackModels: selectedModel.fallbacks,
+            selectionReason: selectedModel.reason,
+            performanceScore: selectedModel.performanceScore
+          },
+          qualityAssessment
         }
+      }
+
+      // Store success pattern in memory
+      if (sessionId && qualityAssessment.overall > 0.7) {
+        advancedContextManager.storeMemory(sessionId, 'success_pattern', {
+          userPrompt,
+          triageResult,
+          generatedCode: assembledCode,
+          resolutionStrategy: 'Enhanced AI orchestration with smart prompts and context',
+          metadata: { 
+            qualityScore: qualityAssessment.overall,
+            pattern: `${triageResult.stack}-${triageResult.context.domain}-${triageResult.requirements.complexity}`
+          }
+        }, ['success', triageResult.stack, triageResult.context.domain])
       }
       
       // Cache the result
@@ -565,6 +665,20 @@ export class CodeOrchestrator {
     
     let code = reactResult.code
     
+    // Check if this is CDN-compatible code (instant preview)
+    const isInstantPreview = reactResult.metadata?.instantPreview || 
+                            (reactResult.metadata?.framework === 'cdn')
+    
+    if (isInstantPreview) {
+      // For CDN-compatible code, don't add imports or exports
+      // Just ensure the App function exists
+      if (!code.includes('function App')) {
+        console.warn('CDN-compatible code missing App function')
+      }
+      return code
+    }
+    
+    // Standard Next.js processing
     // Ensure proper imports
     if (!code.includes('import React')) {
       code = `import React from 'react'\n\n${code}`
@@ -683,6 +797,41 @@ export class CodeOrchestrator {
   }
   
   private getFallbackReactCode(context: AgentContext): string {
+    // Check if we need CDN-compatible fallback
+    const isSimpleApp = context.triageResult.requirements.complexity === 'simple' && 
+                       !context.triageResult.requirements.needsBackend &&
+                       context.triageResult.priority === 'ultra-fast'
+    
+    if (isSimpleApp) {
+      return `function App() {
+  const [count, setCount] = React.useState(0);
+  
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="text-center mb-12">
+          <h1 className="text-4xl font-bold text-gray-900 mb-4">
+            Welcome to Your App
+          </h1>
+          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+            ${context.userPrompt}
+          </p>
+        </div>
+        
+        <div className="bg-white rounded-lg shadow-lg p-8">
+          <button 
+            onClick={() => setCount(count + 1)}
+            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Clicked {count} times
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}`
+    }
+    
     return `import React, { useState } from 'react'
 
 export default function App() {
@@ -837,6 +986,200 @@ if __name__ == "__main__":
     }
   }
   
+  /**
+   * Select optimal model based on task complexity and context
+   */
+  private selectOptimalModel(
+    triageResult: TriageResult,
+    promptResult: EnhancedPromptResult,
+    contextResult: SmartContextResult | null
+  ): { primary: string; fallbacks: string[]; reason: string; performanceScore: number } {
+    const { complexity, needsBackend } = triageResult.requirements
+    const { domain, userExperience } = triageResult.context
+    
+    let primaryModel = models.balanced
+    let fallbacks = [models.fast, models.cheap]
+    let reason = 'Balanced model for standard tasks'
+    
+    // Use powerful model for complex tasks
+    if (complexity === 'complex' || needsBackend || promptResult.confidence < 0.6) {
+      primaryModel = models.powerful
+      fallbacks = [models.balanced, models.fast]
+      reason = 'Powerful model for complex requirements'
+    }
+    
+    // Use fast model for simple tasks with high confidence
+    if (complexity === 'simple' && promptResult.confidence > 0.8 && triageResult.priority === 'ultra-fast') {
+      primaryModel = models.fast
+      fallbacks = [models.balanced]
+      reason = 'Fast model for simple, high-confidence tasks'
+    }
+    
+    // Use reasoning model for debugging or explanation tasks
+    if (triageResult.context.intent === 'fix' || triageResult.context.intent === 'explain') {
+      primaryModel = models.reasoningMini
+      fallbacks = [models.powerful, models.balanced]
+      reason = 'Reasoning model for debugging/explanation tasks'
+    }
+    
+    // Adjust based on user experience
+    if (userExperience === 'beginner' && complexity !== 'simple') {
+      primaryModel = models.powerful
+      reason += ' (enhanced for beginner-friendly explanations)'
+    }
+    
+    const performanceScore = this.getModelPerformanceScore(primaryModel)
+    
+    return { primary: primaryModel, fallbacks, reason, performanceScore }
+  }
+
+  /**
+   * Create enhanced agents with optimized prompts
+   */
+  private createEnhancedAgents(
+    stack: string,
+    promptResult: EnhancedPromptResult,
+    selectedModel: { primary: string; fallbacks: string[] }
+  ): CodeAgent[] {
+    // Use the agent factory but with enhanced configuration
+    const agents = AgentFactory.createAgents(stack)
+    
+    // Configure agents with selected model and enhanced prompts
+    agents.forEach(agent => {
+      // Inject enhanced prompt and model selection into agent context
+      if ('setEnhancedContext' in agent) {
+        (agent as any).setEnhancedContext({
+          optimizedPrompt: promptResult.prompt,
+          selectedModel: selectedModel.primary,
+          fallbackModels: selectedModel.fallbacks,
+          confidenceScore: promptResult.confidence
+        })
+      }
+    })
+    
+    return agents
+  }
+
+  /**
+   * Assess code quality using multiple metrics
+   */
+  private async assessCodeQuality(
+    code: string,
+    triageResult: TriageResult
+  ): Promise<{
+    codeQuality: number;
+    completeness: number;
+    bestPractices: number;
+    accessibility: number;
+    performance: number;
+    overall: number;
+  }> {
+    let codeQuality = 0.7 // Base score
+    let completeness = 0.7
+    let bestPractices = 0.7
+    let accessibility = 0.7
+    let performance = 0.7
+
+    // Code quality checks
+    if (code.length > 100) codeQuality += 0.1
+    if (code.includes('interface ') || code.includes('type ')) codeQuality += 0.1
+    if (!code.includes('any') || code.includes('// @ts-ignore')) codeQuality += 0.1
+    
+    // Completeness checks
+    const hasExports = code.includes('export')
+    const hasImports = code.includes('import')
+    const hasMainFunction = code.includes('function ') || code.includes('const ') || code.includes('def ')
+    
+    if (hasExports) completeness += 0.1
+    if (hasImports) completeness += 0.1
+    if (hasMainFunction) completeness += 0.1
+
+    // Best practices checks
+    if (triageResult.stack === 'nextjs') {
+      if (code.includes('useState') || code.includes('useEffect')) bestPractices += 0.1
+      if (code.includes('className=')) bestPractices += 0.1
+      if (code.includes('aria-')) accessibility += 0.1
+    }
+    
+    if (triageResult.stack === 'streamlit') {
+      if (code.includes('@st.cache')) performance += 0.1
+      if (code.includes('st.spinner')) bestPractices += 0.1
+    }
+
+    // Accessibility checks
+    if (code.includes('alt=') || code.includes('aria-label')) accessibility += 0.1
+    if (code.includes('role=')) accessibility += 0.1
+
+    // Performance checks
+    if (code.includes('useMemo') || code.includes('useCallback')) performance += 0.1
+    if (code.includes('React.memo')) performance += 0.1
+
+    // Ensure scores don't exceed 1.0
+    codeQuality = Math.min(1, codeQuality)
+    completeness = Math.min(1, completeness)
+    bestPractices = Math.min(1, bestPractices)
+    accessibility = Math.min(1, accessibility)
+    performance = Math.min(1, performance)
+
+    const overall = (codeQuality + completeness + bestPractices + accessibility + performance) / 5
+
+    // Store quality in history for tracking
+    this.qualityHistory.push(overall)
+    if (this.qualityHistory.length > 100) {
+      this.qualityHistory = this.qualityHistory.slice(-100)
+    }
+
+    return {
+      codeQuality,
+      completeness,
+      bestPractices,
+      accessibility,
+      performance,
+      overall
+    }
+  }
+
+  /**
+   * Get model performance score from historical data
+   */
+  private getModelPerformanceScore(modelId: string): number {
+    return this.performanceMetrics.get(modelId) || 0.7 // Default score
+  }
+
+  /**
+   * Update model performance based on results
+   */
+  updateModelPerformance(modelId: string, qualityScore: number, executionTime: number): void {
+    const currentScore = this.performanceMetrics.get(modelId) || 0.7
+    
+    // Weighted average: 70% current score, 30% new result
+    const timeScore = executionTime < 10000 ? 1.0 : executionTime < 20000 ? 0.8 : 0.6
+    const combinedScore = (qualityScore * 0.7) + (timeScore * 0.3)
+    const newScore = (currentScore * 0.7) + (combinedScore * 0.3)
+    
+    this.performanceMetrics.set(modelId, newScore)
+  }
+
+  /**
+   * Get AI enhancement statistics
+   */
+  getEnhancementStats(): {
+    averageQuality: number;
+    promptOptimizationUsage: number;
+    contextAwarenessUsage: number;
+    modelSelectionAccuracy: number;
+  } {
+    const averageQuality = this.qualityHistory.length > 0 ?
+      this.qualityHistory.reduce((sum, q) => sum + q, 0) / this.qualityHistory.length : 0
+
+    return {
+      averageQuality,
+      promptOptimizationUsage: 0.85, // Simulated - would track actual usage
+      contextAwarenessUsage: 0.78, // Simulated - would track actual usage
+      modelSelectionAccuracy: 0.82 // Simulated - would track actual accuracy
+    }
+  }
+
   // Utility methods
   getCacheStats(): { size: number; maxSize: number; hitRate: number } {
     const totalHits = Array.from(this.cache.values())

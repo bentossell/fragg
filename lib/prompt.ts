@@ -2,18 +2,33 @@ import { Template, TemplateId, templates } from '@/lib/templates'
 
 function templatesToPrompt(tpls: Record<TemplateId, Template>): string {
   return Object.values(tpls)
+    .filter(t => t && t.name && t.description) // Filter out undefined or malformed templates
     .map(
       (t) =>
-        `- ${t.name} (${t.id}): ${t.description} (tags: ${t.tags.join(', ')})`,
+        `- ${t.name} (${t.id}): ${t.description} (tags: ${t.tags ? t.tags.join(', ') : 'none'})`,
     )
     .join('\n')
 }
 
 export function toPrompt(template: Record<TemplateId, Template> | null) {
   // Add defensive check for template parameter
-  if (!template) {
-    console.error('No template parameter passed to toPrompt, using all templates')
-    template = templates
+  let validTemplate: Record<TemplateId, Template> = template || templates
+  if (!validTemplate || typeof validTemplate !== 'object') {
+    console.error('Invalid template parameter passed to toPrompt, using all templates')
+    validTemplate = templates
+  }
+
+  // Additional check to ensure we have valid templates
+  const validTemplateIds = Object.keys(validTemplate).filter(key => 
+    validTemplate[key as TemplateId] && 
+    typeof validTemplate[key as TemplateId] === 'object' &&
+    validTemplate[key as TemplateId].name &&
+    validTemplate[key as TemplateId].description
+  )
+
+  if (validTemplateIds.length === 0) {
+    console.error('No valid templates found, falling back to default templates')
+    validTemplate = templates
   }
 
   return `
@@ -40,16 +55,59 @@ export function toPrompt(template: Record<TemplateId, Template> | null) {
     
     For React/Next.js apps:
     - Use Tailwind CSS classes extensively
-    - Implement shadcn/ui components where applicable
     - Use modern layouts with cards, sections, and proper hierarchy
     - Include hover effects and transitions
     - Use beautiful color schemes
-    - Add icons from lucide-react where appropriate
-    - CRITICAL: For Next.js apps, ALWAYS write your main component to "pages/index.tsx" (Pages Router format)
-    - Export a default React component from pages/index.tsx that contains your complete app
-    - Import React and any needed dependencies at the top
-    - Create a full page component, not just a snippet - this will replace the entire home page
-    - Use proper React functional component syntax with TypeScript
+    
+    CRITICAL INSTANT PREVIEW OPTIMIZATION:
+    
+    For SIMPLE React apps (SEE LIST BELOW), you MUST write CDN-compatible code:
+    - Write a SINGLE self-contained React component
+    - Use React.useState, React.useEffect, React.useRef etc. (NO destructuring)
+    - NO import statements at all
+    - NO export statements
+    - Just define function App() { ... } directly
+    - Use ONLY Tailwind CSS for styling
+    - The component MUST be named "App"
+    
+    Simple apps include:
+    - Counters, timers, clocks, stopwatches
+    - Todo lists, task managers, note takers
+    - Calculators, converters, generators
+    - Simple forms, surveys, quizzes
+    - Card games, puzzles, memory games
+    - Color pickers, theme switchers
+    - Basic dashboards without API calls
+    - Landing pages, portfolios, resumes
+    - Any app that doesn't need routing or backend
+    
+    Example of CORRECT CDN-compatible code:
+    function App() {
+      const [count, setCount] = React.useState(0);
+      return (
+        <div className="p-8">
+          <button onClick={() => setCount(count + 1)}>
+            Count: {count}
+          </button>
+        </div>
+      );
+    }
+    
+    For COMPLEX Next.js apps that need ANY of these features:
+    - Multiple pages or routing
+    - API endpoints or backend logic
+    - Database connections
+    - Authentication
+    - File uploads
+    - External API calls
+    - Server-side rendering
+    - Complex state management
+    
+    Then use STANDARD Next.js format:
+    - ALWAYS write your main component to "pages/index.tsx"
+    - Use proper imports at the top
+    - Export default from pages/index.tsx
+    - Use TypeScript properly
     
     For Streamlit apps:
     - Use st.markdown() with custom CSS for styling
@@ -75,6 +133,6 @@ export function toPrompt(template: Record<TemplateId, Template> | null) {
     For example, use "nextjs-developer" NOT "nextjs", use "vue-developer" NOT "vue".
     
     Templates available:
-    ${templatesToPrompt(template)}
+    ${templatesToPrompt(validTemplate)}
   `
 }

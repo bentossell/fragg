@@ -11,24 +11,28 @@ export function useSandboxManager() {
   const [error, setError] = useState<string | null>(null)
 
   const getSandbox = useCallback(
-    async (sessionId: string, fragment: DeepPartial<FragmentSchema>): Promise<ExecutionResult | undefined> => {
-      // If a request for this session is already in-flight, wait for it to complete
-      if (requestLocks.has(sessionId)) {
-        console.log(`[useSandboxManager] Waiting for existing request for session: ${sessionId}`)
-        return await requestLocks.get(sessionId)
+    async (sessionId: string, fragment: DeepPartial<FragmentSchema>, appId?: string): Promise<ExecutionResult | undefined> => {
+      // Use appId as the lock key if available, otherwise use sessionId
+      const lockKey = appId || sessionId
+      
+      // If a request for this session/app is already in-flight, wait for it to complete
+      if (requestLocks.has(lockKey)) {
+        console.log(`[useSandboxManager] Waiting for existing request for: ${lockKey}`)
+        return await requestLocks.get(lockKey)
       }
 
       const requestPromise = (async () => {
         setIsLoading(true)
         setError(null)
         try {
-          console.log(`[useSandboxManager] Sending new sandbox request for session: ${sessionId}`)
+          console.log(`[useSandboxManager] Sending new sandbox request for session: ${sessionId}, app: ${appId || 'none'}`)
           const response = await fetch('/api/sandbox', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               fragment,
               sessionId,
+              appId,
               template: fragment.template,
             }),
           })
@@ -47,26 +51,26 @@ export function useSandboxManager() {
           return undefined
         } finally {
           setIsLoading(false)
-          // Clean up the lock for this session
-          requestLocks.delete(sessionId)
-          console.log(`[useSandboxManager] Request lock released for session: ${sessionId}`)
+          // Clean up the lock
+          requestLocks.delete(lockKey)
+          console.log(`[useSandboxManager] Request lock released for: ${lockKey}`)
         }
       })();
       
       // Store the promise in the lock map
-      requestLocks.set(sessionId, requestPromise as Promise<ExecutionResult>)
+      requestLocks.set(lockKey, requestPromise as Promise<ExecutionResult>)
 
       return requestPromise
     },
     []
   )
 
-  const releaseSandbox = useCallback(async (sessionId: string, template: string) => {
+  const releaseSandbox = useCallback(async (sessionId: string, template: string, appId?: string) => {
     try {
       await fetch('/api/sandbox', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, template }),
+        body: JSON.stringify({ sessionId, template, appId }),
       })
     } catch (e) {
       console.error('[useSandboxManager] Failed to release sandbox:', e)

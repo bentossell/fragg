@@ -1,4 +1,4 @@
-import { singleActiveSandboxManager } from '@/lib/sandbox/single-active-manager'
+import { singleActiveSandboxManager } from '@/archive/sandbox/single-active-manager'
 import { NextResponse } from 'next/server'
 
 export async function GET() {

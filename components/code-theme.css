@@ -167,3 +167,434 @@ pre[class*='language-'] {
 .dark .token.entity {
   cursor: help;
 }
+
+/**
+ * Prism Tomorrow Night theme for syntax highlighting
+ */
+pre[class*="language-"],
+code[class*="language-"] {
+  color: #ccc;
+  background: none;
+  font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+  font-size: 1em;
+  text-align: left;
+  white-space: pre;
+  word-spacing: normal;
+  word-break: normal;
+  word-wrap: normal;
+  line-height: 1.5;
+  -moz-tab-size: 4;
+  -o-tab-size: 4;
+  tab-size: 4;
+  -webkit-hyphens: none;
+  -moz-hyphens: none;
+  -ms-hyphens: none;
+  hyphens: none;
+}
+
+/* Code blocks */
+pre[class*="language-"] {
+  padding: 1em;
+  margin: .5em 0;
+  overflow: auto;
+}
+
+:not(pre) > code[class*="language-"],
+pre[class*="language-"] {
+  background: #2d2d2d;
+}
+
+/* Inline code */
+:not(pre) > code[class*="language-"] {
+  padding: .1em;
+  border-radius: .3em;
+  white-space: normal;
+}
+
+.token.comment,
+.token.block-comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: #999;
+}
+
+.token.punctuation {
+  color: #ccc;
+}
+
+.token.tag,
+.token.attr-name,
+.token.namespace,
+.token.deleted {
+  color: #e2777a;
+}
+
+.token.function-name {
+  color: #6196cc;
+}
+
+.token.boolean,
+.token.number,
+.token.function {
+  color: #f08d49;
+}
+
+.token.property,
+.token.class-name,
+.token.constant,
+.token.symbol {
+  color: #f8c555;
+}
+
+.token.selector,
+.token.important,
+.token.atrule,
+.token.keyword,
+.token.builtin {
+  color: #cc99cd;
+}
+
+.token.string,
+.token.char,
+.token.attr-value,
+.token.regex,
+.token.variable {
+  color: #7ec699;
+}
+
+.token.operator,
+.token.entity,
+.token.url {
+  color: #67cdcc;
+}
+
+.token.important,
+.token.bold {
+  font-weight: bold;
+}
+
+.token.italic {
+  font-style: italic;
+}
+
+.token.entity {
+  cursor: help;
+}
+
+.token.inserted {
+  color: green;
+}
+
+/* Enhanced streaming animations */
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+@keyframes typing {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: calc(200px + 100%) 0;
+  }
+}
+
+@keyframes bounce {
+  0%, 20%, 53%, 80%, 100% {
+    animation-timing-function: cubic-bezier(0.215, 0.61, 0.355, 1);
+    transform: translate3d(0, 0, 0);
+  }
+  40%, 43% {
+    animation-timing-function: cubic-bezier(0.755, 0.05, 0.855, 0.06);
+    transform: translate3d(0, -8px, 0);
+  }
+  70% {
+    animation-timing-function: cubic-bezier(0.755, 0.05, 0.855, 0.06);
+    transform: translate3d(0, -4px, 0);
+  }
+  90% {
+    transform: translate3d(0, -2px, 0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes rotateIn {
+  from {
+    transform: rotate(-180deg);
+    opacity: 0;
+  }
+  to {
+    transform: rotate(0);
+    opacity: 1;
+  }
+}
+
+/* Streaming-specific styles */
+.streaming-cursor {
+  animation: blink 1s infinite;
+  background-color: #3b82f6;
+  width: 2px;
+  height: 1.2em;
+  display: inline-block;
+  margin-left: 1px;
+  vertical-align: baseline;
+}
+
+.streaming-line {
+  animation: fadeInUp 0.3s ease-out;
+}
+
+.streaming-word {
+  animation: fadeInUp 0.15s ease-out;
+  display: inline-block;
+}
+
+.streaming-char {
+  animation: fadeInUp 0.05s ease-out;
+  display: inline;
+}
+
+.shimmer-loading {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.2) 20%,
+    rgba(255, 255, 255, 0.5) 60%,
+    rgba(255, 255, 255, 0)
+  );
+  background-size: 200px 100%;
+  animation: shimmer 2s infinite;
+}
+
+.typing-animation {
+  overflow: hidden;
+  border-right: 2px solid #3b82f6;
+  white-space: nowrap;
+  animation: typing 2s steps(40, end), blink 0.75s step-end infinite;
+}
+
+.stage-transition {
+  animation: slideInRight 0.4s ease-out;
+}
+
+.progress-fill {
+  transition: width 0.3s ease-out;
+}
+
+.bounce-loading {
+  animation: bounce 1.4s infinite;
+}
+
+.pulse-loading {
+  animation: pulse 2s infinite;
+}
+
+.fade-in {
+  animation: fadeInUp 0.5s ease-out;
+}
+
+.scale-in {
+  animation: scaleIn 0.3s ease-out;
+}
+
+.rotate-in {
+  animation: rotateIn 0.5s ease-out;
+}
+
+/* Code syntax highlighting enhancements for streaming */
+.token.streaming {
+  background: rgba(59, 130, 246, 0.1);
+  padding: 0.1em 0.2em;
+  border-radius: 0.2em;
+  animation: fadeInUp 0.3s ease-out;
+}
+
+.token.just-added {
+  background: rgba(34, 197, 94, 0.2);
+  animation: fadeInUp 0.2s ease-out;
+}
+
+.line-highlight {
+  background: rgba(59, 130, 246, 0.1);
+  animation: fadeInUp 0.4s ease-out;
+}
+
+/* Progress bar enhancements */
+.progress-bar {
+  transition: all 0.3s ease-out;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+}
+
+.progress-bar.streaming {
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6, #3b82f6);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* Stage indicator animations */
+.stage-icon {
+  transition: all 0.3s ease-out;
+}
+
+.stage-icon.active {
+  animation: pulse 2s infinite;
+}
+
+.stage-icon.complete {
+  animation: scaleIn 0.3s ease-out;
+}
+
+.stage-icon.error {
+  animation: rotateIn 0.5s ease-out;
+  color: #ef4444;
+}
+
+/* Badge animations */
+.streaming-badge {
+  animation: fadeInUp 0.3s ease-out;
+}
+
+.streaming-badge.live {
+  background: linear-gradient(45deg, #10b981, #34d399);
+  animation: pulse 2s infinite;
+}
+
+.streaming-badge.error {
+  background: linear-gradient(45deg, #ef4444, #f87171);
+  animation: pulse 1s infinite;
+}
+
+/* Overlay animations */
+.streaming-overlay {
+  animation: fadeInUp 0.4s ease-out;
+  backdrop-filter: blur(8px);
+}
+
+.streaming-controls {
+  animation: slideInRight 0.3s ease-out;
+}
+
+.error-message {
+  animation: slideInLeft 0.4s ease-out;
+}
+
+.warning-message {
+  animation: fadeInUp 0.3s ease-out;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .streaming-cursor {
+    width: 1px;
+    height: 1em;
+  }
+  
+  .streaming-overlay {
+    padding: 0.5rem;
+  }
+  
+  .stage-transition {
+    animation: fadeInUp 0.3s ease-out;
+  }
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+  .shimmer-loading {
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.1) 20%,
+      rgba(255, 255, 255, 0.2) 60%,
+      rgba(255, 255, 255, 0)
+    );
+  }
+  
+  .line-highlight {
+    background: rgba(59, 130, 246, 0.15);
+  }
+  
+  .token.streaming {
+    background: rgba(59, 130, 246, 0.15);
+  }
+  
+  .token.just-added {
+    background: rgba(34, 197, 94, 0.25);
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .streaming-cursor {
+    background-color: currentColor;
+  }
+  
+  .progress-bar {
+    background: currentColor;
+  }
+  
+  .token.streaming,
+  .token.just-added {
+    outline: 1px solid currentColor;
+    background: transparent;
+  }
+}

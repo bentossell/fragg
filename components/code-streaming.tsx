@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import React, { useEffect, useState, useRef, useCallback, useMemo, memo } from 'react'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-javascript'
 import 'prismjs/components/prism-jsx'
@@ -6,6 +6,37 @@ import 'prismjs/components/prism-python'
 import 'prismjs/components/prism-tsx'
 import 'prismjs/components/prism-typescript'
 import './code-theme.css'
+import { Card } from './ui/card'
+import { Badge } from './ui/badge'
+import { Button } from './ui/button'
+import { Progress } from './ui/progress'
+import { Loader2, Pause, Play, Square, Zap, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import { useThrottle } from '@/lib/hooks/use-debounce'
+import { usePerformanceMonitor, useRerenderTracker } from '@/lib/performance-monitor'
+
+export interface StreamingUpdate {
+  type: 'chunk' | 'metadata' | 'progress' | 'stage' | 'error' | 'complete'
+  data: any
+  timestamp: number
+}
+
+export interface StreamingMetadata {
+  totalFiles?: number
+  currentFile?: string
+  estimatedTime?: number
+  complexity?: 'low' | 'medium' | 'high'
+  framework?: string
+  language?: string
+}
+
+export interface StreamingStage {
+  name: string
+  description: string
+  progress: number
+  isComplete: boolean
+  duration?: number
+  error?: string
+}
 
 export interface RealTimeCodeStreamingProps {
   prompt: string
@@ -13,44 +44,195 @@ export interface RealTimeCodeStreamingProps {
   language?: string
   onComplete?: (result: { code: string; template: string; dependencies: string[] }) => void
   onError?: (error: string) => void
-  onUpdate?: (update: { type: string; data: any; timestamp: number }) => void
+  onUpdate?: (update: StreamingUpdate) => void
+  onCancel?: () => void
+  throttleMs?: number
+  showMetadata?: boolean
+  showProgress?: boolean
+  enableSoundEffects?: boolean
+  maxRetries?: number
 }
 
-export function RealTimeCodeStreaming({ 
+export interface StreamingState {
+  stage: 'connecting' | 'thinking' | 'planning' | 'coding' | 'reviewing' | 'complete' | 'error'
+  progress: number
+  message: string
+  metadata: StreamingMetadata
+  stages: StreamingStage[]
+  canPause: boolean
+  isPaused: boolean
+  totalChunks: number
+  bytesReceived: number
+  requestId: string | null
+  startTime: number
+  lastUpdateTime: number
+  errors: string[]
+  warnings: string[]
+}
+
+// Enhanced streaming component with visual feedback
+export const RealTimeCodeStreaming = memo(function RealTimeCodeStreaming({ 
   prompt,
   isStreaming,
   language = 'typescript',
   onComplete,
   onError,
-  onUpdate
+  onUpdate,
+  onCancel,
+  throttleMs = 50,
+  showMetadata = true,
+  showProgress = true,
+  enableSoundEffects = false,
+  maxRetries = 3
 }: RealTimeCodeStreamingProps) {
+  // Performance monitoring
+  const { trackNetworkRequest } = usePerformanceMonitor('RealTimeCodeStreaming')
+  useRerenderTracker('RealTimeCodeStreaming', { 
+    prompt, isStreaming, language, throttleMs, showMetadata, showProgress, enableSoundEffects, maxRetries 
+  })
   const [displayedCode, setDisplayedCode] = useState('')
-  const [currentStatus, setCurrentStatus] = useState('Initializing...')
-  const [streamingProgress, setStreamingProgress] = useState(0)
-  const [error, setError] = useState<string | null>(null)
-  const [requestId, setRequestId] = useState<string | null>(null)
-  const [totalChunks, setTotalChunks] = useState(0)
-  const [bytesReceived, setBytesReceived] = useState(0)
+  const [streamingState, setStreamingState] = useState<StreamingState>({
+    stage: 'connecting',
+    progress: 0,
+    message: 'Initializing...',
+    metadata: {},
+    stages: [],
+    canPause: false,
+    isPaused: false,
+    totalChunks: 0,
+    bytesReceived: 0,
+    requestId: null,
+    startTime: 0,
+    lastUpdateTime: 0,
+    errors: [],
+    warnings: []
+  })
+  
+  const [cursorPosition, setCursorPosition] = useState(0)
+  const [isTyping, setIsTyping] = useState(false)
+  const [retryCount, setRetryCount] = useState(0)
+
+  // Throttled state updates for performance
+  const throttledDisplayedCode = useThrottle(displayedCode, throttleMs)
+  const throttledProgress = useThrottle(streamingState.progress, throttleMs / 2)
+  
   const codeRef = useRef<HTMLElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const throttleTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
   
-  const startRealTimeGeneration = useCallback(async () => {
-    console.log('🚀 Starting real-time code generation:', prompt)
-    const startTime = Date.now()
+  // Initialize audio context for sound effects
+  useEffect(() => {
+    if (enableSoundEffects && !audioContextRef.current) {
+      try {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+      } catch (error) {
+        console.warn('Audio context not available:', error)
+      }
+    }
+  }, [enableSoundEffects])
+  
+  // Sound effect utility
+  const playSound = useCallback((frequency: number, duration: number) => {
+    if (!enableSoundEffects || !audioContextRef.current) return
     
     try {
-      setError(null)
+      const oscillator = audioContextRef.current.createOscillator()
+      const gainNode = audioContextRef.current.createGain()
+      
+      oscillator.connect(gainNode)
+      gainNode.connect(audioContextRef.current.destination)
+      
+      oscillator.frequency.value = frequency
+      oscillator.type = 'sine'
+      
+      gainNode.gain.setValueAtTime(0.1, audioContextRef.current.currentTime)
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContextRef.current.currentTime + duration)
+      
+      oscillator.start()
+      oscillator.stop(audioContextRef.current.currentTime + duration)
+    } catch (error) {
+      console.warn('Sound playback failed:', error)
+    }
+  }, [enableSoundEffects])
+  
+  // Throttled DOM update
+  const throttledUpdateCode = useCallback((newCode: string) => {
+    if (throttleTimeoutRef.current) {
+      clearTimeout(throttleTimeoutRef.current)
+    }
+    
+    throttleTimeoutRef.current = setTimeout(() => {
+      setDisplayedCode(newCode)
+      setCursorPosition(newCode.length)
+      
+      // Debounced syntax highlighting
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current)
+      }
+      
+      highlightTimeoutRef.current = setTimeout(() => {
+        if (codeRef.current && newCode.length > 0) {
+          try {
+            Prism.highlightElement(codeRef.current)
+          } catch (error) {
+            console.warn('Syntax highlighting failed:', error)
+          }
+        }
+      }, 200)
+    }, throttleMs)
+  }, [throttleMs])
+  
+  // Typing animation effect
+  const simulateTyping = useCallback((text: string, speed: number = 10) => {
+    setIsTyping(true)
+    let currentIndex = 0
+    
+    const typeNextChar = () => {
+      if (currentIndex < text.length) {
+        setDisplayedCode(text.substring(0, currentIndex + 1))
+        setCursorPosition(currentIndex + 1)
+        currentIndex++
+        
+        // Play typing sound
+        playSound(800 + Math.random() * 200, 0.05)
+        
+        typingTimeoutRef.current = setTimeout(typeNextChar, speed + Math.random() * 10)
+      } else {
+        setIsTyping(false)
+        playSound(1000, 0.1) // Completion sound
+      }
+    }
+    
+    typeNextChar()
+  }, [playSound])
+  
+  // Enhanced streaming generation with better error handling
+  const startRealTimeGeneration = useCallback(async () => {
+    console.log('🚀 Starting enhanced real-time code generation:', prompt)
+    const startTime = Date.now()
+    
+    setStreamingState(prev => ({
+      ...prev,
+      stage: 'connecting',
+      progress: 0,
+      message: 'Connecting to AI...',
+      startTime,
+      lastUpdateTime: startTime,
+      errors: [],
+      warnings: []
+    }))
+    
+    try {
       setDisplayedCode('')
-      setCurrentStatus('Connecting to AI...')
-      setStreamingProgress(0)
-      setTotalChunks(0)
-      setBytesReceived(0)
-      setRequestId(null)
+      setRetryCount(0)
       
       // Create abort controller for cleanup
       abortControllerRef.current = new AbortController()
       
-      // Call the streaming endpoint with enhanced logging
+      // Enhanced API call with retry logic
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: {
@@ -61,7 +243,9 @@ export function RealTimeCodeStreaming({
           streaming: true,
           model: 'anthropic/claude-3.5-sonnet',
           priority: 'fast',
-          useCache: true
+          useCache: true,
+          includeMetadata: true,
+          throttleMs
         }),
         signal: abortControllerRef.current.signal,
       })
@@ -71,20 +255,33 @@ export function RealTimeCodeStreaming({
         throw new Error(`Generation failed: ${errorData.error || response.statusText}`)
       }
 
-      // Extract request ID from headers for tracking
+      // Extract metadata from headers
       const responseRequestId = response.headers.get('X-Request-ID')
-      if (responseRequestId) {
-        setRequestId(responseRequestId)
-        console.log('📍 Request ID:', responseRequestId)
-      }
+      const estimatedTime = response.headers.get('X-Estimated-Time')
+      const complexity = response.headers.get('X-Complexity') as StreamingMetadata['complexity']
+      
+      setStreamingState(prev => ({
+        ...prev,
+        requestId: responseRequestId,
+        metadata: {
+          ...prev.metadata,
+          estimatedTime: estimatedTime ? parseInt(estimatedTime) : undefined,
+          complexity: complexity || 'medium'
+        }
+      }))
 
       const reader = response.body?.getReader()
       if (!reader) {
         throw new Error('No response body reader available')
       }
 
-      setCurrentStatus('AI is generating code...')
-      setStreamingProgress(10)
+      setStreamingState(prev => ({
+        ...prev,
+        stage: 'thinking',
+        progress: 10,
+        message: 'AI is analyzing your request...',
+        canPause: true
+      }))
 
       const decoder = new TextDecoder()
       let buffer = ''
@@ -92,26 +289,34 @@ export function RealTimeCodeStreaming({
       let bytes = 0
       let codeStarted = false
       let finalResult: any = null
+      let currentStage: StreamingStage | null = null
 
       while (true) {
         const { done, value } = await reader.read()
         
         if (done) {
           const totalTime = Date.now() - startTime
-          console.log('✅ Streaming completed in', totalTime, 'ms')
-          setCurrentStatus('Generation complete!')
-          setStreamingProgress(100)
+          console.log('✅ Enhanced streaming completed in', totalTime, 'ms')
           
-          // Try to extract final code from buffer if not already extracted
+          setStreamingState(prev => ({
+            ...prev,
+            stage: 'complete',
+            progress: 100,
+            message: 'Generation complete!',
+            canPause: false
+          }))
+          
+          // Play completion sound
+          playSound(800, 0.2)
+          
+          // Process final result
           if (!finalResult && buffer) {
             try {
-              // Look for JSON in the final buffer
               const jsonMatch = buffer.match(/\{[\s\S]*\}/)
               if (jsonMatch) {
                 finalResult = JSON.parse(jsonMatch[0])
               }
             } catch (e) {
-              // If no JSON, use buffer as raw code
               finalResult = {
                 code: buffer.trim(),
                 template: 'nextjs-developer',
@@ -135,38 +340,99 @@ export function RealTimeCodeStreaming({
         chunks++
         bytes += chunk.length
         
-        setTotalChunks(chunks)
-        setBytesReceived(bytes)
+        // Update state with throttling
+        setStreamingState(prev => ({
+          ...prev,
+          totalChunks: chunks,
+          bytesReceived: bytes,
+          lastUpdateTime: Date.now()
+        }))
         
-        // Update progress based on chunks received
-        const progress = Math.min(20 + (chunks * 1.5), 95)
-        setStreamingProgress(progress)
-        
-        console.log('📦 Chunk', chunks, ':', chunk.length, 'chars, total:', bytes, 'bytes')
-        
-        // Try to parse JSON response from the stream
+        // Parse streaming updates
         try {
-          // Look for complete JSON objects in the buffer
           const lines = buffer.split('\n')
           for (let i = 0; i < lines.length - 1; i++) {
             const line = lines[i].trim()
+            
+            // Handle structured streaming updates
+            if (line.startsWith('data: ')) {
+              try {
+                const update = JSON.parse(line.slice(6))
+                
+                switch (update.type) {
+                  case 'stage':
+                    setStreamingState(prev => ({
+                      ...prev,
+                      stage: update.data.stage,
+                      message: update.data.message,
+                      progress: update.data.progress
+                    }))
+                    break
+                    
+                  case 'metadata':
+                    setStreamingState(prev => ({
+                      ...prev,
+                      metadata: { ...prev.metadata, ...update.data }
+                    }))
+                    break
+                    
+                  case 'code_chunk':
+                    if (update.data.code) {
+                      throttledUpdateCode(update.data.code)
+                      codeStarted = true
+                    }
+                    break
+                    
+                  case 'error':
+                    setStreamingState(prev => ({
+                      ...prev,
+                      errors: [...prev.errors, update.data.message]
+                    }))
+                    break
+                    
+                  case 'warning':
+                    setStreamingState(prev => ({
+                      ...prev,
+                      warnings: [...prev.warnings, update.data.message]
+                    }))
+                    break
+                }
+                
+                // Send update to parent
+                if (onUpdate) {
+                  onUpdate({
+                    type: update.type,
+                    data: update.data,
+                    timestamp: Date.now()
+                  })
+                }
+              } catch (e) {
+                // Not a valid streaming update, continue
+              }
+            }
+            
+            // Handle JSON response
             if (line.startsWith('{') && line.endsWith('}')) {
               try {
                 const parsed = JSON.parse(line)
                 if (parsed.code) {
                   finalResult = parsed
-                  setDisplayedCode(parsed.code)
-                  setCurrentStatus('Formatting and highlighting...')
+                  
+                  if (parsed.animate) {
+                    simulateTyping(parsed.code)
+                  } else {
+                    throttledUpdateCode(parsed.code)
+                  }
+                  
                   codeStarted = true
                   
-                  // Highlight code
-                  setTimeout(() => {
-                    if (codeRef.current) {
-                      Prism.highlightElement(codeRef.current)
-                    }
-                  }, 10)
+                  setStreamingState(prev => ({
+                    ...prev,
+                    stage: 'reviewing',
+                    message: 'Formatting and highlighting...',
+                    progress: 90
+                  }))
                   
-                  // Call completion callback
                   if (onComplete) {
                     onComplete({
                       code: parsed.code,
@@ -175,7 +441,6 @@ export function RealTimeCodeStreaming({
                     })
                   }
                   
-                  // Clear buffer of processed lines
                   buffer = lines.slice(i + 1).join('\n')
                   break
                 }
@@ -185,12 +450,11 @@ export function RealTimeCodeStreaming({
             }
           }
         } catch (e) {
-          // Continue processing
+          console.warn('Failed to parse streaming update:', e)
         }
         
-        // If no structured response yet, display raw streaming content
+        // Fallback code detection if no structured updates
         if (!codeStarted) {
-          // Look for code patterns in the stream
           const codePatterns = [
             /```[\w]*\n([\s\S]*?)```/g,
             /import\s+.*?from\s+['"]/,
@@ -206,225 +470,315 @@ export function RealTimeCodeStreaming({
           const hasCodePattern = codePatterns.some(pattern => pattern.test(buffer))
          
           if (hasCodePattern) {
-            // Extract code from markdown blocks if present
             const codeMatch = buffer.match(/```[\w]*\n([\s\S]*?)```/)
             if (codeMatch) {
-              setDisplayedCode(codeMatch[1])
+              throttledUpdateCode(codeMatch[1])
               codeStarted = true
             } else {
-              // Use the full buffer as code if it looks like code
               const trimmedBuffer = buffer.trim()
-              if (trimmedBuffer.length > 50) { // Only if substantial content
-                setDisplayedCode(trimmedBuffer)
+              if (trimmedBuffer.length > 50) {
+                throttledUpdateCode(trimmedBuffer)
                 codeStarted = true
               }
             }
             
-            setCurrentStatus('Code detected, processing...')
+            setStreamingState(prev => ({
+              ...prev,
+              stage: 'coding',
+              message: 'Code detected, streaming...',
+              progress: Math.min(30 + (chunks * 0.5), 80)
+            }))
           } else {
-            // Still waiting for code patterns
-            setCurrentStatus(`AI is thinking... (${chunks} chunks, ${bytes} bytes)`)
-            // Show a preview of recent content
-            const preview = buffer.slice(-150).trim()
+            // Still thinking stage
+            setStreamingState(prev => ({
+              ...prev,
+              stage: 'thinking',
+              message: `AI is thinking... (${chunks} chunks, ${(bytes / 1024).toFixed(1)}KB)`,
+              progress: Math.min(10 + (chunks * 0.2), 25)
+            }))
+            
+            const preview = buffer.slice(-100).trim()
             if (preview.length > 10) {
-              setDisplayedCode(`// Generating...\n// ${preview.replace(/\n/g, '\n// ')}`)
+              setDisplayedCode(`// AI is generating code...\n// ${preview.replace(/\n/g, '\n// ')}`)
             }
           }
-        } else {
-          // Update existing code progressively
-          const newContent = buffer.trim()
-          if (newContent !== displayedCode) {
-            setDisplayedCode(newContent)
-          }
-        }
-
-        // Progressive highlighting every few chunks
-        if (chunks % 3 === 0 && codeRef.current && codeStarted) {
-          Prism.highlightElement(codeRef.current)
-        }
-
-        // Send update to parent
-        if (onUpdate) {
-          onUpdate({
-            type: 'streaming',
-            data: { 
-              chunk, 
-              totalChunks: chunks, 
-              bufferLength: buffer.length,
-              bytesReceived: bytes,
-              codeStarted,
-              progress,
-              requestId: responseRequestId
-            },
-            timestamp: Date.now()
-          })
         }
       }
 
     } catch (error: any) {
-      const totalTime = Date.now() - startTime
-      console.error('❌ Real-time generation failed:', error)
+      console.error('❌ Enhanced streaming generation failed:', error)
       
       const errorMessage = error.name === 'AbortError' 
         ? 'Generation was cancelled'
         : error.message || 'Unknown error occurred'
       
-      setError(errorMessage)
-      setCurrentStatus(`Error: ${errorMessage}`)
+      setStreamingState(prev => ({
+        ...prev,
+        stage: 'error',
+        message: `Error: ${errorMessage}`,
+        errors: [...prev.errors, errorMessage]
+      }))
       
-      console.log('❌ Generation failed after', totalTime, 'ms:', errorMessage)
+      // Play error sound
+      playSound(400, 0.3)
+      
+      // Retry logic
+      if (retryCount < maxRetries && error.name !== 'AbortError') {
+        setRetryCount(prev => prev + 1)
+        setTimeout(() => {
+          console.log(`🔄 Retrying (${retryCount + 1}/${maxRetries})...`)
+          startRealTimeGeneration()
+        }, 1000 * Math.pow(2, retryCount)) // Exponential backoff
+        return
+      }
       
       if (onError) {
         onError(errorMessage)
       }
     }
-  }, [prompt, onComplete, onError, onUpdate])
+  }, [prompt, onComplete, onError, onUpdate, throttleMs, maxRetries, retryCount, playSound, simulateTyping, throttledUpdateCode])
 
+  // Pause/Resume functionality
+  const handlePause = useCallback(() => {
+    setStreamingState(prev => ({
+      ...prev,
+      isPaused: !prev.isPaused
+    }))
+  }, [])
+
+  // Cancel functionality
+  const handleCancel = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    
+    setStreamingState(prev => ({
+      ...prev,
+      stage: 'error',
+      message: 'Generation cancelled',
+      canPause: false
+    }))
+    
+    if (onCancel) {
+      onCancel()
+    }
+  }, [onCancel])
+
+  // Main streaming effect
   useEffect(() => {
     if (!isStreaming || !prompt.trim()) {
       return
     }
 
-    // Start real-time streaming generation
     startRealTimeGeneration()
 
     return () => {
-      // Cleanup: abort any ongoing requests
+      // Cleanup
       if (abortControllerRef.current) {
         abortControllerRef.current.abort()
+      }
+      if (throttleTimeoutRef.current) {
+        clearTimeout(throttleTimeoutRef.current)
+      }
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current)
+      }
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current)
       }
     }
   }, [prompt, isStreaming, startRealTimeGeneration])
 
-  // Highlight code when it changes
+  // Cleanup effect
   useEffect(() => {
-    if (displayedCode && codeRef.current) {
-      Prism.highlightElement(codeRef.current)
+    return () => {
+      if (audioContextRef.current) {
+        audioContextRef.current.close()
+      }
     }
-  }, [displayedCode])
+  }, [])
+
+  // Memoized stage display
+  const stageDisplay = useMemo(() => {
+    const stageInfo = {
+      connecting: { icon: Loader2, color: 'text-blue-500', label: 'Connecting' },
+      thinking: { icon: Loader2, color: 'text-yellow-500', label: 'Thinking' },
+      planning: { icon: Zap, color: 'text-purple-500', label: 'Planning' },
+      coding: { icon: Loader2, color: 'text-green-500', label: 'Coding' },
+      reviewing: { icon: CheckCircle, color: 'text-blue-500', label: 'Reviewing' },
+      complete: { icon: CheckCircle, color: 'text-green-500', label: 'Complete' },
+      error: { icon: XCircle, color: 'text-red-500', label: 'Error' }
+    }
+
+    return stageInfo[streamingState.stage] || stageInfo.connecting
+  }, [streamingState.stage])
 
   return (
-    <div className="relative h-full overflow-auto">
-      {/* Enhanced real-time status indicator */}
-      {isStreaming && (
-        <div className="absolute top-4 right-4 z-10">
-          <div className="flex items-center gap-3 px-4 py-2 bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border">
-            {error ? (
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-red-500 rounded-full" />
-                <span className="text-sm font-medium text-red-700">Error</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
-                <span className="text-sm font-medium text-green-700">Live</span>
-              </div>
-            )}
-            
-            {/* Progress bar */}
-            <div className="w-28 h-2 bg-gray-200 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-300"
-                style={{ width: `${streamingProgress}%` }}
-              />
-            </div>
-            
-            <div className="text-xs text-gray-600 min-w-[60px]">
-              {streamingProgress.toFixed(0)}%
-            </div>
-          </div>
+    <div className="relative h-full min-h-96 border rounded-lg overflow-hidden bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
+      {/* Enhanced header with stage indicator */}
+      <div className="flex items-center justify-between p-3 border-b bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
+        <div className="flex items-center gap-3">
+          <Badge variant="outline" className="flex items-center gap-2">
+            <stageDisplay.icon className={`h-4 w-4 ${stageDisplay.color} ${isStreaming ? 'animate-spin' : ''}`} />
+            <span className="text-sm font-medium">{stageDisplay.label}</span>
+          </Badge>
+          
+          {isStreaming && (
+            <Badge variant="secondary" className="animate-pulse">
+              <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-ping" />
+              Live
+            </Badge>
+          )}
         </div>
-      )}
-
-      {/* Detailed status and metrics */}
-      {isStreaming && (
-        <div className="absolute top-16 right-4 z-10">
-          <div className="px-3 py-2 bg-blue-50/95 border border-blue-200 rounded-md backdrop-blur-sm">
-            <div className="text-xs text-blue-700 font-medium mb-1">
-              {currentStatus}
+        
+        <div className="flex items-center gap-2">
+          {/* Controls */}
+          {isStreaming && streamingState.canPause && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handlePause}
+              className="h-8 w-8 p-0"
+            >
+              {streamingState.isPaused ? (
+                <Play className="h-4 w-4" />
+              ) : (
+                <Pause className="h-4 w-4" />
+              )}
+            </Button>
+          )}
+          
+          {isStreaming && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleCancel}
+              className="h-8 w-8 p-0 text-red-500"
+            >
+              <Square className="h-4 w-4" />
+            </Button>
+          )}
+          
+          {/* Metadata display */}
+          {showMetadata && streamingState.metadata && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {streamingState.requestId && (
+                <span className="font-mono">
+                  ID: {streamingState.requestId.slice(-8)}
+                </span>
+              )}
+              {streamingState.totalChunks > 0 && (
+                <span>
+                  {streamingState.totalChunks} chunks
+                </span>
+              )}
+              {streamingState.bytesReceived > 0 && (
+                <span>
+                  {(streamingState.bytesReceived / 1024).toFixed(1)}KB
+                </span>
+              )}
             </div>
-            {totalChunks > 0 && (
-              <div className="text-xs text-blue-600 space-y-0.5">
-                <div>Chunks: {totalChunks}</div>
-                <div>Bytes: {bytesReceived.toLocaleString()}</div>
-                {requestId && (
-                  <div className="font-mono">ID: {requestId.slice(-8)}</div>
-                )}
-              </div>
-            )}
-          </div>
+          )}
         </div>
-      )}
+      </div>
 
-      {/* Code display */}
-      <pre className="p-4 pt-2 m-0 min-h-full" style={{ backgroundColor: 'transparent' }}>
-        <code 
-          ref={codeRef}
-          className={`language-${language}`}
-          style={{ fontSize: 12 }}
-        >
-          {displayedCode || (isStreaming ? 'Waiting for AI response...' : '')}
-        </code>
-      </pre>
-      
-      {/* Error display */}
-      {error && (
-        <div className="absolute bottom-4 left-4 right-4">
-          <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-            <div className="flex items-start gap-3">
-              <div className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                <span className="text-white text-xs">!</span>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-red-800 mb-1">Generation Error</h4>
-                <p className="text-sm text-red-700">{error}</p>
-                {requestId && (
-                  <p className="text-xs text-red-600 mt-1 font-mono">Request ID: {requestId}</p>
-                )}
-                <button 
-                  onClick={() => {
-                    setError(null)
-                    if (prompt.trim()) {
-                      startRealTimeGeneration()
-                    }
-                  }}
-                  className="mt-2 text-xs text-red-600 hover:text-red-800 underline"
-                >
-                  Try again
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Enhanced streaming indicator for active generation */}
-      {isStreaming && streamingProgress > 0 && streamingProgress < 100 && (
-        <div className="absolute bottom-4 right-4">
-          <div className="flex items-center gap-3 px-4 py-2 bg-primary/10 backdrop-blur-sm rounded-full">
-            <div className="flex gap-1">
-              {[0, 1, 2].map((i) => (
-                <div
-                  key={i}
-                  className="w-2 h-2 bg-primary rounded-full animate-pulse"
-                  style={{
-                    animationDelay: `${i * 0.15}s`,
-                  }}
-                />
-              ))}
-            </div>
-            <span className="text-xs font-medium">
-              {totalChunks > 0 ? `Processing ${totalChunks} chunks...` : 'Generating code...'}
+      {/* Progress bar */}
+      {showProgress && isStreaming && (
+        <div className="px-3 py-2 bg-muted/50">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-sm text-muted-foreground">
+              {streamingState.message}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {streamingState.progress}%
             </span>
           </div>
+          <Progress value={streamingState.progress} className="h-2" />
         </div>
       )}
+
+      {/* Error/Warning messages */}
+      {streamingState.errors.length > 0 && (
+        <div className="px-3 py-2 bg-red-50 dark:bg-red-900/20 border-b">
+          {streamingState.errors.map((error, index) => (
+            <div key={index} className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
+              <XCircle className="h-4 w-4" />
+              {error}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {streamingState.warnings.length > 0 && (
+        <div className="px-3 py-2 bg-yellow-50 dark:bg-yellow-900/20 border-b">
+          {streamingState.warnings.map((warning, index) => (
+            <div key={index} className="flex items-center gap-2 text-sm text-yellow-600 dark:text-yellow-400">
+              <AlertCircle className="h-4 w-4" />
+              {warning}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Code display with enhanced styling */}
+      <div className="relative flex-1 overflow-hidden">
+        <pre className="p-4 pt-2 m-0 h-full overflow-auto" style={{ backgroundColor: 'transparent' }}>
+          <code 
+            ref={codeRef}
+            className={`language-${language} block`}
+            style={{ 
+              fontSize: 13,
+              lineHeight: 1.5,
+              fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace'
+            }}
+          >
+            {displayedCode || (isStreaming ? 'Waiting for AI response...' : '')}
+          </code>
+          
+          {/* Animated cursor */}
+          {isStreaming && isTyping && (
+            <span 
+              className="inline-block w-2 h-5 bg-blue-500 animate-pulse ml-1"
+              style={{
+                animation: 'blink 1s infinite',
+                position: 'absolute',
+                marginTop: '-1px'
+              }}
+            />
+          )}
+        </pre>
+        
+        {/* Streaming progress overlay */}
+        {isStreaming && streamingState.progress > 0 && streamingState.progress < 100 && (
+          <div className="absolute bottom-4 right-4">
+            <div className="flex items-center gap-3 px-4 py-2 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-full shadow-lg">
+              <div className="flex gap-1">
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="w-2 h-2 bg-primary rounded-full animate-bounce"
+                    style={{
+                      animationDelay: `${i * 0.15}s`,
+                      animationDuration: '0.6s'
+                    }}
+                  />
+                ))}
+              </div>
+              <span className="text-xs font-medium">
+                {streamingState.totalChunks > 0 
+                  ? `Processing ${streamingState.totalChunks} chunks...` 
+                  : 'Generating code...'}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
-}
+})
 
-// Backward compatibility: keep the old CodeStreaming component but mark as deprecated
-export function CodeStreaming({ 
+// Backward compatibility component (simplified)
+export const CodeStreaming = memo(function CodeStreaming({ 
   code,
   isStreaming,
   language = 'typescript'
@@ -433,7 +787,7 @@ export function CodeStreaming({
   isStreaming: boolean
   language?: string
 }) {
-  console.warn('CodeStreaming is deprecated. Use RealTimeCodeStreaming for real AI streaming.')
+  console.warn('CodeStreaming is deprecated. Use RealTimeCodeStreaming for enhanced streaming.')
   
   const [displayedCode, setDisplayedCode] = useState('')
   const codeRef = useRef<HTMLElement>(null)
@@ -449,7 +803,7 @@ export function CodeStreaming({
       return
     }
     
-    // Simulate streaming for backward compatibility
+    // Simple streaming simulation
     let currentIndex = 0
     const chars = code.split('')
     
@@ -471,37 +825,18 @@ export function CodeStreaming({
     
     return () => clearInterval(interval)
   }, [code, isStreaming])
-  
+
   return (
-    <div className="relative h-full overflow-auto">
-      <pre className="p-4 pt-2 m-0 min-h-full" style={{ backgroundColor: 'transparent' }}>
+    <div className="relative h-full min-h-96 border rounded-lg overflow-hidden">
+      <pre className="p-4 pt-2 m-0 h-full overflow-auto" style={{ backgroundColor: 'transparent' }}>
         <code 
           ref={codeRef}
           className={`language-${language}`}
           style={{ fontSize: 12 }}
         >
-          {displayedCode}
+          {displayedCode || (isStreaming ? 'Waiting for AI response...' : '')}
         </code>
       </pre>
-      
-      {isStreaming && displayedCode.length > 0 && (
-        <div className="absolute bottom-4 right-4">
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 backdrop-blur-sm rounded-full">
-            <div className="flex gap-1">
-              {[0, 1, 2].map((i) => (
-                <div
-                  key={i}
-                  className="w-2 h-2 bg-primary rounded-full animate-pulse"
-                  style={{
-                    animationDelay: `${i * 0.15}s`,
-                  }}
-                />
-              ))}
-            </div>
-            <span className="text-xs font-medium">Generating code...</span>
-          </div>
-        </div>
-      )}
     </div>
   )
-} 
+}) 

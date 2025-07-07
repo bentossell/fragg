@@ -1,6 +1,7 @@
 import { Sandbox } from '@e2b/code-interpreter'
 import { singleActiveSandboxManager } from './single-active-manager'
-import { getTemplate, TemplateId } from '../templates'
+import { getTemplate, TemplateId } from '../../lib/templates'
+import { sandboxPool } from './sandbox-pool'
 
 export class SandboxReconnectionManager {
   private sessionToSandbox = new Map<string, string>()
@@ -11,14 +12,24 @@ export class SandboxReconnectionManager {
     sessionId: string,
     template: TemplateId,
   ): Promise<{ sandbox: Sandbox; isNew: boolean }> {
-    // 1. Check if this session already has the active sandbox
+    // 1. Check if sandbox pool already has a sandbox for this session
+    const poolSandbox = await sandboxPool.findSandboxBySession(sessionId)
+    if (poolSandbox) {
+      console.log(`[reconnect] Found sandbox in pool for session ${sessionId}`)
+      await singleActiveSandboxManager.setActiveSandbox(sessionId, poolSandbox)
+      const hasInstalledDeps = sandboxPool.hasDependenciesInstalled(poolSandbox.sandboxId)
+      return { sandbox: poolSandbox, isNew: !hasInstalledDeps }
+    }
+    
+    // 2. Check if this session already has the active sandbox
     const activeSandbox = singleActiveSandboxManager.getCurrentSandbox(sessionId)
     if (activeSandbox) {
       console.log(`[reconnect] Using active sandbox ${activeSandbox.sandboxId} for session ${sessionId}`)
-      return { sandbox: activeSandbox, isNew: false }
+      const hasInstalledDeps = sandboxPool.hasDependenciesInstalled(activeSandbox.sandboxId)
+      return { sandbox: activeSandbox, isNew: !hasInstalledDeps }
     }
 
-    // 2. Check if we have a sandbox ID for this session
+    // 3. Check if we have a sandbox ID for this session
     const sandboxId = this.sessionToSandbox.get(sessionId)
     if (sandboxId) {
       const attempts = this.reconnectAttempts.get(sandboxId) || 0
@@ -31,7 +42,8 @@ export class SandboxReconnectionManager {
           await singleActiveSandboxManager.setActiveSandbox(sessionId, sandbox)
           
           console.log(`[reconnect] Reconnected to ${sandboxId}`)
-          return { sandbox, isNew: false }
+          const hasInstalledDeps = sandboxPool.hasDependenciesInstalled(sandboxId)
+          return { sandbox, isNew: !hasInstalledDeps }
         } catch (error) {
           console.error(`[reconnect] Failed to reconnect to sandbox ${sandboxId}:`, error)
           this.reconnectAttempts.set(sandboxId, (this.reconnectAttempts.get(sandboxId) || 0) + 1)
@@ -43,28 +55,17 @@ export class SandboxReconnectionManager {
       }
     }
 
-    // 3. Create a new sandbox
-    console.log(`[reconnect] Creating new sandbox for session ${sessionId} with template ${template}`)
-    const templateInfo = getTemplate(template)
-    if (!templateInfo) {
-      throw new Error(`Template ${template} not found.`)
-    }
+    // 4. Get sandbox from pool or create a new one
+    console.log(`[reconnect] Getting sandbox from pool for session ${sessionId} with template ${template}`)
+    const sandbox = await sandboxPool.getSandbox(template, sessionId)
 
-    const sandbox = await Sandbox.create(templateInfo.id, {
-      metadata: {
-        sessionId,
-        template,
-        createdAt: new Date().toISOString(),
-      },
-      timeoutMs: 10 * 60 * 1000, // 10 minutes
-    })
-
-    // 4. Store the new sandbox ID and set it as active
+    // 5. Store the new sandbox ID and set it as active
     this.sessionToSandbox.set(sessionId, sandbox.sandboxId)
     await singleActiveSandboxManager.setActiveSandbox(sessionId, sandbox)
 
-    console.log(`[reconnect] Created new sandbox ${sandbox.sandboxId} for session ${sessionId}`)
-    return { sandbox, isNew: true }
+    console.log(`[reconnect] Got sandbox ${sandbox.sandboxId} for session ${sessionId}`)
+    const hasInstalledDeps = sandboxPool.hasDependenciesInstalled(sandbox.sandboxId)
+    return { sandbox, isNew: !hasInstalledDeps }
   }
 
   public clearSession(sessionId: string) {
@@ -78,4 +79,4 @@ export class SandboxReconnectionManager {
 }
 
 // Export singleton instance
-export const sandboxReconnectionManager = new SandboxReconnectionManager()
+export const sandboxReconnectionManager = new SandboxReconnectionManager() 

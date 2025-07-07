@@ -6,7 +6,7 @@ import { Chat } from '@/components/chat'
 import { ChatInput } from '@/components/chat-input'
 import { ChatPicker } from '@/components/chat-picker'
 import { ChatSettings } from '@/components/chat-settings'
-import { Preview } from '@/components/preview'
+import { UnifiedPreview } from '@/components/unified-preview'
 import { Message, toAISDKMessages, toMessageImage } from '@/lib/messages'
 import { LLMModelConfig } from '@/lib/models'
 import modelsList from '@/lib/models.json'
@@ -100,7 +100,7 @@ export function ChatSession({
     api: '/api/chat',
     schema,
     onError: (error) => {
-      console.error('Error submitting request:', error)
+      console.error('ChatSession Error submitting request:', error)
       if (error.message.includes('limit')) {
         setIsRateLimited(true)
       }
@@ -180,6 +180,12 @@ export function ChatSession({
     },
   })
 
+  // Sync local isLoading with parent isGenerating state
+  useEffect(() => {
+    console.log('ChatSession isLoading changed:', isLoading)
+    onGeneratingChange(isLoading)
+  }, [isLoading, onGeneratingChange])
+
   // Update fragment when object changes
   useEffect(() => {
     if (object) {
@@ -222,10 +228,13 @@ export function ChatSession({
     }
   }, [object, onNewMessage, setMessages])
 
-  // Stop on error
+  // Stop on error and clear generating state
   useEffect(() => {
-    if (error) stop()
-  }, [error, stop])
+    if (error) {
+      stop()
+      onGeneratingChange(false)
+    }
+  }, [error, stop, onGeneratingChange])
 
   // Report state changes
   useEffect(() => {
@@ -339,6 +348,13 @@ export function ChatSession({
         <Chat
           messages={messages}
           isLoading={isGenerating}
+          streamingProgress={isGenerating ? {
+            stage: 'coding',
+            progress: 50,
+            message: 'Generating application...',
+            canPause: false,
+            isPaused: false
+          } : undefined}
           setCurrentPreview={setCurrentPreview}
         />
         <ChatInput
@@ -373,16 +389,23 @@ export function ChatSession({
         />
       </div>
       
-      <Preview
-        teamID={userTeam?.id}
-        accessToken={session?.access_token}
+      <UnifiedPreview
+        fragment={fragment}
+        result={result}
+        isLoading={false}
+        isGenerating={isGenerating}
+        isPreviewLoading={isPreviewLoading}
+        currentAppId={sessionId}
+        appName="Chat Session"
+        template={selectedTemplate}
+        messages={messages}
         selectedTab={currentTab}
         onSelectedTabChange={setCurrentTab}
-        isChatLoading={isGenerating}
-        isPreviewLoading={isPreviewLoading}
-        fragment={fragment}
-        result={result as ExecutionResult}
+        showTabs={true}
+        showClose={true}
         onClose={() => setFragment(undefined)}
+        teamID={userTeam?.id}
+        accessToken={session?.access_token}
       />
     </>
   )

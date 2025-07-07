@@ -7,7 +7,6 @@ import { fragmentSchema as schema } from '@/lib/schema'
 import templates, { Template, TemplateId } from '@/lib/templates'
 import { selectOptimalTemplate } from '@/lib/template-selector'
 import { streamObject, LanguageModel, CoreMessage } from 'ai'
-import { codeOrchestrator, StreamingUpdate } from '@/lib/ai-orchestrator'
 
 export const maxDuration = 60
 
@@ -19,254 +18,214 @@ const ratelimitWindow = process.env.RATE_LIMIT_WINDOW
   : '1d'
 
 export async function POST(req: Request) {
-  const {
-    messages,
-    userID,
-    teamID,
-    template,
-    model,
-    config = {},
-    useOptimized = true, // Enable optimized generation by default
-  }: {
-    messages: CoreMessage[]
-    userID: string | undefined
-    teamID: string | undefined
-    template: Record<TemplateId, Template>
-    model: LLMModel
-    config: LLMModelConfig
-    useOptimized?: boolean
+  const { 
+    messages, 
+    model, 
+    template, 
+    existingCode,
+    config
   } = await req.json()
 
-  // Add defensive check for template
-  if (!template && !templates) {
-    return new Response('No template configuration provided', {
-      status: 400,
-    })
-  }
-
-  const limit = !config.apiKey
-    ? await ratelimit(
-        req.headers.get('x-forwarded-for'),
-        rateLimitMaxRequests,
-        ratelimitWindow,
-      )
-    : false
-
-  if (limit) {
-    return new Response('You have reached your request limit for the day.', {
-      status: 429,
-      headers: {
-        'X-RateLimit-Limit': limit.amount.toString(),
-        'X-RateLimit-Remaining': limit.remaining.toString(),
-        'X-RateLimit-Reset': limit.reset.toString(),
-      },
-    })
-  }
-
-  console.log('userID', userID)
-  console.log('teamID', teamID)
-  // console.log('template', template)
-  console.log('model', model)
-  console.log('useOptimized', useOptimized)
-
   // Extract the user's prompt from the last message
-  const lastUserMessage = messages.filter(m => m.role === 'user').pop()
-  const userPrompt = lastUserMessage?.content || ''
+  const lastUserMessage = messages.filter((m: any) => m.role === 'user').pop()
+  const userPrompt = Array.isArray(lastUserMessage?.content) 
+    ? lastUserMessage.content.find((c: any) => c.type === 'text')?.text 
+    : lastUserMessage?.content
 
-  // If optimized generation is enabled and we have a simple prompt, use the fast path
-  if (useOptimized && typeof userPrompt === 'string' && userPrompt.trim()) {
-    try {
-      console.log('🎯 Using AI orchestrator for optimized generation')
+  console.log('🚀 Chat API: Processing request')
+  console.log('- Model:', model?.id || 'default')
+  console.log('- Template:', template || 'auto')
+  console.log('- User prompt:', userPrompt?.substring(0, 100) + '...')
 
-      // Create a transform stream to convert orchestrator updates to the expected format
-      const { readable, writable } = new TransformStream()
-      const writer = writable.getWriter()
-      const encoder = new TextEncoder()
-      
-      // Track generation progress
-      let currentFragment: any = {
-        title: extractTitle(userPrompt),
-        commentary: 'Analyzing your request...',
-        code: '',
-        template: 'nextjs-developer'
-      }
-      
-      // Function to send fragment updates
-      const sendFragmentUpdate = (fragment: any) => {
-        writer.write(encoder.encode(`0:"${JSON.stringify(fragment).replace(/"/g, '\\"')}"\n`))
-      }
-      
-      // Start generation with streaming updates
-      codeOrchestrator.generateApp(userPrompt, (update: StreamingUpdate) => {
-        switch (update.type) {
-          case 'triage':
-            currentFragment.commentary = `Selected ${update.data.result?.stack} stack (${update.data.executionTime}ms)`
-            currentFragment.template = update.data.result?.template || 'nextjs-developer'
-            sendFragmentUpdate(currentFragment)
-            break
-            
-          case 'agent_start':
-            currentFragment.commentary = `Running ${update.data.agents.length} specialized agents...`
-            sendFragmentUpdate(currentFragment)
-            break
-            
-          case 'agent_complete':
-            const completedAgents = update.data.completedAgents || 1
-            const totalAgents = update.data.totalAgents || update.data.agents?.length || 1
-            currentFragment.commentary = `Processing... (${completedAgents}/${totalAgents} agents complete)`
-            if (update.data.partialCode) {
-              currentFragment.code = update.data.partialCode
-            }
-            sendFragmentUpdate(currentFragment)
-            break
-            
-          case 'assembly':
-            currentFragment.commentary = 'Assembling final application...'
-            sendFragmentUpdate(currentFragment)
-            break
-            
-          case 'complete':
-            if (update.data.error) {
-              currentFragment.commentary = `Error: ${update.data.error}`
-            } else {
-              currentFragment.code = update.data.code
-              currentFragment.template = update.data.template
-              currentFragment.commentary = `✨ Generation complete in ${update.data.executionTime}ms!`
-            }
-            sendFragmentUpdate(currentFragment)
-            writer.close()
-            break
-        }
-      }, '').catch(error => {
-        currentFragment.commentary = `Error: ${error.message}`
-        sendFragmentUpdate(currentFragment)
-        writer.close()
-      })
-      
-      return new Response(readable, {
-        headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
-          'X-Generation-Method': 'ai-orchestrator',
-        }
-      })
-      
-    } catch (error) {
-      console.error('Optimized generation failed, falling back to standard:', error)
-      // Fall through to standard generation
+  // Rate limiting
+  try {
+    const identifier = req.headers.get('x-forwarded-for') ?? 'anonymous'
+    const rateLimitResult = await ratelimit(identifier, rateLimitMaxRequests, ratelimitWindow)
+    if (rateLimitResult) {
+      console.log('❌ Rate limit exceeded for:', identifier)
+      return new Response('Rate limit exceeded', { status: 429 })
     }
+  } catch (error) {
+    console.error('Rate limiting error:', error)
   }
 
-  // Provide default model if undefined
+  // Generate unique request ID for tracking
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+  
+  console.log(`🎯 Starting generation [${requestId}]`)
+
+  // Use default model if none provided
   const defaultModel = {
-    id: 'anthropic/claude-sonnet-4',
-    name: 'Claude Sonnet 4',
+    id: 'anthropic/claude-3.5-sonnet',
+    name: 'Claude 3.5 Sonnet',
     provider: 'OpenRouter',
     providerId: 'openrouter'
   }
   
   const modelToUse = model || defaultModel
   
-  // Smart template selection based on user's last message
+  // Smart template selection
   let templateToUse = template || templates
   
-  // If auto mode (all templates), select optimal template based on user prompt
-  if (templateToUse === templates || !templateToUse) {
-    const lastUserMessage = messages.filter(m => m.role === 'user').pop()
-    const userPrompt = lastUserMessage?.content || ''
-    const optimalTemplate = selectOptimalTemplate(String(userPrompt)) as keyof typeof templates
-    
-    // Ensure the selected template exists
-    if (!templates[optimalTemplate]) {
-      console.error(`Selected template ${optimalTemplate} not found, falling back to nextjs-developer`)
-      templateToUse = { 'nextjs-developer': templates['nextjs-developer'] } as Record<TemplateId, Template>
-    } else {
-      templateToUse = { [optimalTemplate]: templates[optimalTemplate] } as Record<TemplateId, Template>
+  if (!template || template === 'auto') {
+    try {
+      const optimalTemplate = selectOptimalTemplate(userPrompt || '')
+      console.log(`🎯 Auto-selected template: ${optimalTemplate}`)
+      
+      // Ensure the selected template exists in our templates
+      if (optimalTemplate && templates[optimalTemplate as TemplateId]) {
+        templateToUse = { [optimalTemplate]: templates[optimalTemplate as TemplateId] }
+      } else {
+        console.warn(`Selected template "${optimalTemplate}" not found, using all templates`)
+        templateToUse = templates
+      }
+    } catch (error) {
+      console.warn('Template selection failed, using default:', error)
+      templateToUse = templates
     }
   }
-  
-  // Final safety check for templateToUse
-  if (!templateToUse || typeof templateToUse !== 'object' || Object.keys(templateToUse).length === 0) {
-    console.error('templateToUse is invalid, using default nextjs-developer template')
-    templateToUse = { 'nextjs-developer': templates['nextjs-developer'] } as Record<TemplateId, Template>
+
+  // Additional validation to ensure templateToUse is valid
+  if (!templateToUse || typeof templateToUse !== 'object') {
+    console.warn('Invalid templateToUse, falling back to default templates')
+    templateToUse = templates
   }
 
-  const { model: modelNameString, apiKey: modelApiKey, ...modelParams } = config
-  const modelClient = getModelClient(modelToUse, config)
+  // Get model configuration
+  let modelClient: any
+  let modelParams: any = {}
 
   try {
+    modelClient = getModelClient(modelToUse, config || {})
+    console.log('✅ Model client configured:', modelToUse.id)
+  } catch (error) {
+    console.error('❌ Failed to get model client:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+    return new Response(
+      JSON.stringify({ error: 'Model configuration error', details: errorMessage }), 
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
+
+  // Execute generation with proper AI SDK streaming
+  try {
+    console.log(`🔄 Generating with model: ${modelToUse.id}`)
+    console.log(`📄 Using prompt template:`, typeof templateToUse === 'string' ? templateToUse : 'dynamic')
+    
     const stream = await streamObject({
       model: modelClient as LanguageModel,
       schema,
       system: toPrompt(templateToUse),
-      messages,
-      maxRetries: 0, // do not retry on errors
+      messages: messages as CoreMessage[],
+      maxRetries: 2,
       ...modelParams,
     })
 
-    return stream.toTextStreamResponse()
+    console.log(`✅ Stream created successfully [${requestId}]`)
+
+    return stream.toTextStreamResponse({
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'X-Request-ID': requestId,
+        'X-Generation-Method': 'ai-sdk-streaming',
+        'X-Model': modelToUse.id,
+        'X-Template': typeof templateToUse === 'string' ? templateToUse : 'dynamic',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive'
+      }
+    })
   } catch (error: any) {
-    const isRateLimitError =
-      error && (error.statusCode === 429 || error.message.includes('limit'))
-    const isOverloadedError =
-      error && (error.statusCode === 529 || error.statusCode === 503)
-    const isAccessDeniedError =
-      error && (error.statusCode === 403 || error.statusCode === 401)
+    console.error(`❌ Generation error [${requestId}]:`, error)
+    
+    const isRateLimitError = error && (error.statusCode === 429 || error.message.includes('limit'))
+    const isOverloadedError = error && (error.statusCode === 529 || error.statusCode === 503)
+    const isAccessDeniedError = error && (error.statusCode === 403 || error.statusCode === 401)
 
     if (isRateLimitError) {
       return new Response(
-        'The provider is currently unavailable due to request limit. Try using your own API key.',
-        {
-          status: 429,
-        },
+        JSON.stringify({
+          error: 'Rate Limit Exceeded',
+          details: 'The AI provider is currently rate limited. Please try again in a moment.',
+          retryAfter: 60
+        }),
+        { 
+          status: 429, 
+          headers: { 
+            'Content-Type': 'application/json',
+            'Retry-After': '60'
+          } 
+        }
       )
     }
 
     if (isOverloadedError) {
       return new Response(
-        'The provider is currently unavailable. Please try again later.',
-        {
-          status: 529,
-        },
+        JSON.stringify({
+          error: 'Service Temporarily Unavailable',
+          details: 'The AI provider is currently overloaded. Please try again in a moment.',
+          retryAfter: 30
+        }),
+        { 
+          status: 503, 
+          headers: { 
+            'Content-Type': 'application/json',
+            'Retry-After': '30'
+          } 
+        }
       )
     }
 
     if (isAccessDeniedError) {
       return new Response(
-        'Access denied. Please make sure your API key is valid.',
-        {
-          status: 403,
-        },
+        JSON.stringify({
+          error: 'Access Denied',
+          details: 'API key invalid or insufficient permissions. Please check your configuration.',
+        }),
+        { 
+          status: 403, 
+          headers: { 'Content-Type': 'application/json' } 
+        }
       )
     }
 
-    console.error('Error:', error)
-
+    // Generic error
     return new Response(
-      'An unexpected error has occurred. Please try again later.',
-      {
-        status: 500,
-      },
+      JSON.stringify({
+        error: 'Generation Failed',
+        details: error.message || 'An unexpected error occurred during generation.',
+        requestId
+      }),
+      { 
+        status: 500, 
+        headers: { 'Content-Type': 'application/json' } 
+      }
     )
   }
 }
 
-// Utility function to extract title from prompt
 function extractTitle(prompt: string): string {
-  // Try to extract a meaningful title from the prompt
-  const titleMatch = prompt.match(/(?:build|create|make|generate)\s+(?:a\s+)?(.{1,50}?)(?:\s+(?:app|application|website|page|tool|game))?/i)
+  const words = prompt.toLowerCase().split(' ')
+  const appKeywords = ['app', 'application', 'tool', 'calculator', 'generator', 'converter', 'manager', 'dashboard', 'tracker', 'game', 'quiz', 'form']
+  const actionKeywords = ['create', 'build', 'make', 'generate', 'design', 'develop']
   
-  if (titleMatch && titleMatch[1]) {
-    return titleMatch[1]
-      .trim()
-      .split(' ')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(' ')
+  const filteredWords = words.filter(word => 
+    !actionKeywords.includes(word) && 
+    !['a', 'an', 'the', 'with', 'that', 'for', 'to', 'of', 'in', 'on', 'at', 'by'].includes(word) &&
+    word.length > 2
+  )
+  
+  const appType = words.find(word => appKeywords.includes(word))
+  
+  if (filteredWords.length > 0) {
+    const mainWords = filteredWords.slice(0, 3).map(word => 
+      word.charAt(0).toUpperCase() + word.slice(1)
+    ).join(' ')
+    
+    if (appType && !mainWords.toLowerCase().includes(appType)) {
+      return `${mainWords} ${appType.charAt(0).toUpperCase() + appType.slice(1)}`
+    }
+    return mainWords
   }
   
-  // Fallback to first few words
-  return prompt
-    .split(' ')
-    .slice(0, 4)
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join(' ')
+  return 'Generated App'
 }

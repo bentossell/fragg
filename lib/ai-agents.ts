@@ -286,6 +286,68 @@ export class ReactAgent extends CodeAgent {
       const components = await componentLibrary.getComponents(context.triageResult.components)
       const reactComponents = componentLibrary.getCombinedReact(components)
       
+      // Check if we should generate CDN-compatible code
+      const isSimpleApp = context.triageResult.requirements.complexity === 'simple' && 
+                         !context.triageResult.requirements.needsBackend &&
+                         !context.triageResult.requirements.needsDatabase &&
+                         !context.triageResult.requirements.needsAuth &&
+                         context.triageResult.priority === 'ultra-fast'
+      
+      if (isSimpleApp) {
+        // Generate CDN-compatible React code
+        const prompt = `You are creating a simple React component that will run instantly in the browser using CDN-loaded React.
+
+USER REQUEST: "${context.userPrompt}"
+
+CRITICAL REQUIREMENTS FOR INSTANT PREVIEW:
+1. DO NOT use any import statements
+2. DO NOT use export statements
+3. Use React.useState, React.useEffect, React.useRef etc. (NOT destructured)
+4. TailwindCSS is available - use Tailwind classes for ALL styling
+5. Create a single function App() { ... } component
+6. The component will be automatically rendered
+
+STRUCTURE YOUR CODE EXACTLY LIKE THIS:
+function App() {
+  const [state, setState] = React.useState(initialValue);
+  
+  return (
+    <div className="tailwind-classes-here">
+      {/* Your component JSX */}
+    </div>
+  );
+}
+
+AVAILABLE:
+- React hooks: React.useState, React.useEffect, React.useRef, React.useMemo, React.useCallback
+- All TailwindCSS classes for beautiful styling
+- Basic browser APIs (localStorage, setTimeout, etc.)
+
+Create a beautiful, interactive component with:
+- Modern design with proper spacing and typography
+- Smooth animations and transitions using Tailwind
+- Responsive design (mobile-first)
+- Clean, organized code structure
+
+Generate ONLY the App function code. No explanations, no markdown.`
+        
+        const code = await this.callAI(prompt, 3000)
+        
+        return {
+          agentName: this.name,
+          code: this.cleanCode(code),
+          dependencies: [], // No dependencies for CDN version
+          metadata: { 
+            type: 'react',
+            hasTypeScript: false,
+            framework: 'cdn',
+            instantPreview: true
+          },
+          executionTime: Date.now() - startTime
+        }
+      }
+      
+      // Standard Next.js generation
       const prompt = this.createPrompt(
         'Senior React/Next.js Developer',
         context,
@@ -349,6 +411,38 @@ STRUCTURE:
   }
   
   private getFallbackReact(context: AgentContext): string {
+    // Check if we need CDN-compatible fallback
+    const isSimpleApp = context.triageResult.requirements.complexity === 'simple' && 
+                       !context.triageResult.requirements.needsBackend &&
+                       context.triageResult.priority === 'ultra-fast'
+    
+    if (isSimpleApp) {
+      return `function App() {
+  const [count, setCount] = React.useState(0);
+  
+  return (
+    <div className="min-h-screen bg-gray-50 py-12">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="text-center">
+          <h1 className="text-4xl font-bold text-gray-900 mb-8">
+            Welcome to Your App
+          </h1>
+          <p className="text-lg text-gray-600 mb-8">
+            ${context.userPrompt}
+          </p>
+          <button 
+            onClick={() => setCount(count + 1)}
+            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Clicked {count} times
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}`
+    }
+    
     return `import React from 'react'
 
 export default function App() {

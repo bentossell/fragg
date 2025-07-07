@@ -1,35 +1,87 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react'
+import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense, memo } from 'react'
 import { usePostHog } from 'posthog-js/react'
 import { useLocalStorage } from 'usehooks-ts'
 import { experimental_useObject as useObject } from 'ai/react'
 import { useQueryState, parseAsString } from 'nuqs'
+import { useIsMobile, useIsDesktop } from '@/lib/hooks/use-media-query'
+import { useDebounce, useDebouncedCallback } from '@/lib/hooks/use-debounce'
+import { usePerformanceMonitor, useRerenderTracker } from '@/lib/performance-monitor'
+import { ErrorBoundary } from 'react-error-boundary'
+
+// Core imports
 import modelsList from '@/lib/models.json'
 import templates, { TemplateId } from '@/lib/templates'
+import { fragmentSchema as schema, FragmentSchema } from '@/lib/schema'
+import { ExecutionResult } from '@/lib/types'
+import { DeepPartial } from 'ai'
+import type { LLMModelConfig } from '@/lib/models'
+import { Message, toAISDKMessages } from '@/lib/messages'
+
+// New system imports
+import { EnhancedVersionSystem, AppVersion, VersionTree } from '@/lib/storage/enhanced-version-system'
+import { DiffSystemIntegration, DiffUpdateRequest, DiffUpdateResult } from '@/lib/diff-system-integration'
+import { ConversationalModificationSystem, ConversationResponse } from '@/lib/conversational-modification-system'
+import { ChangeManagementSystem, ChangeRecord } from '@/lib/change-management-system'
+import { AppLibrary, SavedApp } from '@/lib/storage/app-library'
+
+// Component imports
 import { Chat } from '@/components/chat'
 import { ChatInput } from '@/components/chat-input'
 import { ChatPicker } from '@/components/chat-picker'
 import { ChatSettings } from '@/components/chat-settings'
-import { Preview } from '@/components/preview'
-import { EnhancedPreview } from '@/components/enhanced-preview'
+import { UnifiedPreview } from '@/components/unified-preview'
+import { DualPanelLayout } from '@/components/dual-panel-layout'
+import { ConversationalChatInterface } from '@/components/conversational-chat-interface'
+import { DiffPreviewDialog } from '@/components/diff-preview-dialog'
 import { NavBar } from '@/components/navbar'
-import { AppLibrary, SavedApp } from '@/lib/storage/app-library'
-import { singleActiveSandboxManager } from '@/lib/sandbox/single-active-manager'
-import { sandboxReconnectionManager } from '@/lib/sandbox/reconnect'
-import { sandboxVersionWarmup } from '@/lib/storage/version-warmup'
-import { Button } from '@/components/ui/button'
-import { Save, Plus, FolderOpen } from 'lucide-react'
-import { toast } from '@/components/ui/use-toast'
-import type { LLMModelConfig } from '@/lib/models'
-import { Message, toAISDKMessages, toMessageImage } from '@/lib/messages'
-import { fragmentSchema as schema, FragmentSchema } from '@/lib/schema'
-import { ExecutionResult } from '@/lib/types'
-import { DeepPartial } from 'ai'
-import { forkApp } from './actions/fork-app'
-import { useSandboxManager } from '@/lib/hooks/use-sandbox-manager'
+import { VersionManager } from '@/components/version-manager'
+import { VersionTimeline } from '@/components/version-timeline'
 
-// A generic fragment for pre-warming sandboxes
+// UI imports
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Badge } from '@/components/ui/badge'
+import { Progress } from '@/components/ui/progress'
+import { toast } from '@/components/ui/use-toast'
+import { 
+  Tooltip, 
+  TooltipContent, 
+  TooltipProvider, 
+  TooltipTrigger 
+} from '@/components/ui/tooltip'
+
+// Icon imports
+import { 
+  Save, 
+  Plus, 
+  FolderOpen, 
+  LayoutGrid, 
+  Columns2, 
+  Code, 
+  Monitor,
+  Settings,
+  History,
+  GitBranch,
+  Zap,
+  MessageSquare,
+  Maximize2,
+  Minimize2,
+  RefreshCw,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Users,
+  FileText,
+  Lightbulb
+} from 'lucide-react'
+
+// Actions
+import { forkApp } from './actions/fork-app'
+
+// Constants
 const PREWARM_FRAGMENT: DeepPartial<FragmentSchema> = {
   template: 'nextjs-developer',
   code: 'export default () => <h1>Ready!</h1>',
@@ -37,50 +89,773 @@ const PREWARM_FRAGMENT: DeepPartial<FragmentSchema> = {
   port: 3000,
 }
 
-interface HistoryEntry {
+// Types
+interface AppState {
+  currentAppId: string | null
+  appName: string
+  selectedTemplate: 'auto' | TemplateId
   messages: Message[]
   fragment?: DeepPartial<FragmentSchema>
   result?: ExecutionResult
+  isGenerating: boolean
+  isPreviewLoading: boolean
+  isAutoSaving: boolean
+  streamingProgress?: StreamingProgress
 }
 
-interface FragmentVersion {
-  fragment: DeepPartial<FragmentSchema>
-  result?: ExecutionResult
-  timestamp: number
+interface StreamingProgress {
+  stage: 'connecting' | 'thinking' | 'planning' | 'coding' | 'reviewing' | 'complete' | 'error'
+  progress: number
+  message: string
+  estimatedTime?: number
+  elapsedTime?: number
+  canPause?: boolean
+  isPaused?: boolean
+  errors?: string[]
+  warnings?: string[]
 }
 
-function SimplifiedHomeContent() {
-  const [chatInput, setChatInput] = useState('')
+interface UIState {
+  currentTab: 'code' | 'fragment' | 'chat' | 'versions' | 'changes'
+  layout: 'tabs' | 'dual-panel' | 'conversational'
+  leftPanelCollapsed: boolean
+  rightPanelCollapsed: boolean
+  isLibraryOpen: boolean
+  isDiffDialogOpen: boolean
+  isVersionTimelineOpen: boolean
+  isSettingsOpen: boolean
+  fullScreenMode: boolean
+  enableSoundEffects: boolean
+  showAdvancedFeatures: boolean
+}
+
+interface SystemState {
+  versionSystem: EnhancedVersionSystem | null
+  diffSystem: DiffSystemIntegration | null
+  conversationalSystem: ConversationalModificationSystem | null
+  changeManager: ChangeManagementSystem | null
+  appLibrary: AppLibrary | null
+  versions: AppVersion[]
+  changes: ChangeRecord[]
+  conversationResponse: ConversationResponse | null
+}
+
+// Error Fallback Component
+function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-background">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-destructive">
+            <AlertCircle className="h-5 w-5" />
+            Something went wrong
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {error.message || 'An unexpected error occurred'}
+          </p>
+          <div className="flex gap-2">
+            <Button onClick={resetErrorBoundary} variant="outline">
+              Try again
+            </Button>
+            <Button onClick={() => window.location.reload()}>
+              Refresh page
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// Main App Component
+const EnhancedApp = memo(function EnhancedApp() {
+  // Performance monitoring
+  const { trackNetworkRequest } = usePerformanceMonitor('EnhancedApp')
+  useRerenderTracker('EnhancedApp', {})
+
+  // Core state
+  const [appState, setAppState] = useState<AppState>({
+    currentAppId: null,
+    appName: 'New App',
+    selectedTemplate: 'auto',
+    messages: [],
+    fragment: undefined,
+    result: undefined,
+    isGenerating: false,
+    isPreviewLoading: false,
+    isAutoSaving: false,
+    streamingProgress: undefined
+  })
+
+  // UI state
+  const [uiState, setUIState] = useState<UIState>({
+    currentTab: 'code',
+    layout: 'dual-panel',
+    leftPanelCollapsed: false,
+    rightPanelCollapsed: false,
+    isLibraryOpen: false,
+    isDiffDialogOpen: false,
+    isVersionTimelineOpen: false,
+    isSettingsOpen: false,
+    fullScreenMode: false,
+    enableSoundEffects: false,
+    showAdvancedFeatures: false
+  })
+
+  // System state
+  const [systemState, setSystemState] = useState<SystemState>({
+    versionSystem: null,
+    diffSystem: null,
+    conversationalSystem: null,
+    changeManager: null,
+    appLibrary: null,
+    versions: [],
+    changes: [],
+    conversationResponse: null
+  })
+
+  // Persistent state
+  const [languageModel, setLanguageModel] = useLocalStorage<LLMModelConfig>(
+    'languageModel',
+    { model: 'anthropic/claude-sonnet-4' }
+  )
+
+  // Input state
+  const [input, setInput] = useState('')
   const [files, setFiles] = useState<File[]>([])
-  const [selectedTemplate, setSelectedTemplate] = useState<'auto' | TemplateId>('auto')
-  const [currentAppId, setCurrentAppId] = useState<string | null>(null)
-  const [appName, setAppName] = useLocalStorage('appName', 'New App')
-  const [messages, setMessages] = useState<Message[]>([])
-  const [fragment, setFragment] = useState<DeepPartial<FragmentSchema> | undefined>()
-  const [result, setResult] = useState<ExecutionResult | undefined>()
-  const [currentTab, setCurrentTab] = useState<'code' | 'fragment'>('code')
-  const [isPreviewLoading, setIsPreviewLoading] = useState(false)
-  const [isAutoSaving, setIsAutoSaving] = useState(false)
-  const [isLibraryOpen, setIsLibraryOpen] = useState(false)
-  const [isLibraryLoading, setIsLibraryLoading] = useState(false)
-  
-  // URL parameters
+
+  // URL state
   const [urlAppId, setUrlAppId] = useQueryState('app', parseAsString)
   const [forkShareId, setForkShareId] = useQueryState('fork', parseAsString)
-  
-  // Fragment versioning
-  const [fragmentVersions, setFragmentVersions] = useState<FragmentVersion[]>([])
-  const [currentVersionIndex, setCurrentVersionIndex] = useState(-1)
-  
-  // History management for undo/redo
-  const [history, setHistory] = useState<HistoryEntry[]>([{ messages: [], fragment: undefined, result: undefined }])
-  const [historyIndex, setHistoryIndex] = useState(0)
-  
-  const appLibrary = useMemo(() => new AppLibrary(), [])
+
+  // Hooks
+  const isMobile = useIsMobile()
+  const isDesktop = useIsDesktop()
+  const posthog = usePostHog()
+
+  // Refs
   const messagesRef = useRef<Message[]>([])
-  const sessionManager = useRef<AppLibrary | null>(null)
-  
-  // Handle forking an app
+  const systemsInitialized = useRef(false)
+
+  // Initialize systems
+  const initializeSystems = useCallback(async (appId: string) => {
+    if (systemsInitialized.current) return
+
+    try {
+      const versionSystem = new EnhancedVersionSystem(appId)
+      const diffSystem = new DiffSystemIntegration(appId, {
+        enableAI: true,
+        enableChangeManagement: true,
+        enableVersionTracking: true,
+        autoApproval: false,
+        conflictResolution: 'auto',
+        diffMode: 'ai-assisted'
+      })
+      const conversationalSystem = new ConversationalModificationSystem()
+      const changeManager = new ChangeManagementSystem(appId)
+      const appLibrary = new AppLibrary()
+
+      setSystemState(prev => ({
+        ...prev,
+        versionSystem,
+        diffSystem,
+        conversationalSystem,
+        changeManager,
+        appLibrary
+      }))
+
+      systemsInitialized.current = true
+    } catch (error) {
+      console.error('Failed to initialize systems:', error)
+      toast({
+        title: 'System initialization failed',
+        description: 'Some features may not work properly. Please refresh the page.',
+        variant: 'destructive'
+      })
+    }
+  }, [])
+
+  // Initialize systems when app ID changes
+  useEffect(() => {
+    if (appState.currentAppId) {
+      initializeSystems(appState.currentAppId)
+    }
+  }, [appState.currentAppId, initializeSystems])
+
+  // Sync messages ref
+  useEffect(() => {
+    messagesRef.current = appState.messages
+  }, [appState.messages])
+
+  // Update URL when app ID changes
+  useEffect(() => {
+    if (appState.currentAppId !== urlAppId) {
+      setUrlAppId(appState.currentAppId)
+    }
+  }, [appState.currentAppId, urlAppId, setUrlAppId])
+
+  // Handle fork parameter with debouncing
+  const debouncedForkShareId = useDebounce(forkShareId, 500)
+
+  // Memoized computations
+  const filteredModels = useMemo(() => {
+    return modelsList.models.filter((model: any) => {
+      if (process.env.NEXT_PUBLIC_HIDE_LOCAL_MODELS) {
+        return model.providerId !== 'ollama'
+      }
+      return true
+    })
+  }, [])
+
+  const currentModel = useMemo(() => {
+    return filteredModels.find(
+      (model: any) => model.id === languageModel.model
+    ) || filteredModels[0]
+  }, [filteredModels, languageModel.model])
+
+  const currentTemplate = useMemo(() => {
+    return appState.selectedTemplate === 'auto' 
+      ? templates 
+      : { [appState.selectedTemplate]: templates[appState.selectedTemplate] }
+  }, [appState.selectedTemplate])
+
+  // Memoized message processing
+  const processedMessages = useMemo(() => {
+    return appState.messages
+      .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+      .map(msg => ({
+        ...msg,
+        processedContent: msg.content.map(c => c.type === 'text' ? c.text : '').join('\n')
+      }))
+  }, [appState.messages])
+
+  // Convert messages to AI SDK format
+  const toAISDKMessages = useCallback((msgs: Message[]): any[] => {
+    return msgs.map(msg => ({
+      role: msg.role,
+      content: msg.content.map(c => c.type === 'text' ? c.text : '').join('\n'),
+      processedContent: msg.content.map(c => c.type === 'text' ? c.text : '').join('\n')
+    }))
+  }, [appState.messages])
+
+  // Get sandbox
+  const getSandbox = useCallback(async (
+    sessionId: string, 
+    fragment: DeepPartial<FragmentSchema>, 
+    appId?: string
+  ): Promise<ExecutionResult | null> => {
+    try {
+      console.log('🔄 Creating sandbox for:', { sessionId, appId, template: fragment.template })
+      const response = await fetch('/api/sandbox', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fragment,
+          sessionId,
+          appId
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.details || errorData.error || `HTTP error! status: ${response.status}`)
+      }
+
+      const result = await response.json()
+      console.log('✅ Sandbox created successfully:', result)
+      return result
+    } catch (error) {
+      console.error('❌ Error getting sandbox:', error)
+      
+      // Enhance timeout error messages
+      if (error instanceof Error) {
+        if (error.message.includes('timeout') || error.message.includes('deadline_exceeded')) {
+          throw new Error(
+            `⏱️ Sandbox creation timed out.\n\n` +
+            `This usually happens when:\n` +
+            `• E2B service is experiencing high load\n` +
+            `• Network connectivity is slow\n` +
+            `• Template initialization is taking longer than usual\n\n` +
+            `💡 Try again in a moment, or refresh the page if the issue persists.`
+          )
+        }
+        
+        if (error.message.includes('fetch')) {
+          throw new Error(
+            `🌐 Network error while creating sandbox.\n\n` +
+            `Please check your internet connection and try again.`
+          )
+        }
+      }
+      
+      throw error // Re-throw to handle in calling function
+    }
+  }, [])
+
+  // AI SDK object for generating
+  const { object, submit, isLoading, stop, error } = useObject({
+    api: '/api/chat',
+    schema,
+    onError: (error) => {
+      console.error('❌ useObject error:', error)
+      setAppState(prev => ({ ...prev, isGenerating: false, streamingProgress: undefined }))
+      toast({
+        title: 'Generation Error',
+        description: error.message || 'Failed to generate response',
+        variant: 'destructive',
+      })
+    },
+    onFinish: async ({ object: fragment, error }) => {
+      console.log('✅ onFinish called:', { fragment: !!fragment, error: !!error })
+      
+      if (error) {
+        console.error('❌ onFinish error:', error)
+        setAppState(prev => ({ ...prev, isGenerating: false, streamingProgress: undefined }))
+        toast({
+          title: 'Generation Failed',
+          description: error.message || 'An error occurred during generation',
+          variant: 'destructive',
+        })
+        return
+      }
+
+      if (fragment) {
+        console.log('📝 Finalizing assistant message with fragment')
+        
+        // Update the final assistant message
+        setAppState(prev => {
+          const messages = [...prev.messages]
+          const lastMessage = messages[messages.length - 1]
+          
+          if (lastMessage && lastMessage.role === 'assistant') {
+            // Update existing assistant message with final content
+            messages[messages.length - 1] = {
+              ...lastMessage,
+              content: [
+                { type: 'text', text: fragment.commentary || 'Generated application' },
+                ...(fragment.code ? [{ type: 'code' as const, text: fragment.code }] : [])
+              ],
+              object: fragment
+            }
+            console.log('📝 Updated existing assistant message')
+          } else {
+            // Add new assistant message if none exists
+            const assistantMessage: Message = {
+              role: 'assistant',
+              content: [
+                { type: 'text', text: fragment.commentary || 'Generated application' },
+                ...(fragment.code ? [{ type: 'code' as const, text: fragment.code }] : [])
+              ],
+              object: fragment
+            }
+            messages.push(assistantMessage)
+            console.log('📝 Added new assistant message')
+          }
+          
+          return { 
+            ...prev, 
+            messages, 
+            isGenerating: false,
+            streamingProgress: {
+              stage: 'complete',
+              progress: 100,
+              message: 'Generation complete! Creating sandbox...',
+              canPause: false,
+              isPaused: false
+            }
+          }
+        })
+        
+        // Handle generation completion with better error handling
+        try {
+          await handleGenerationComplete(fragment)
+        } catch (completionError) {
+          console.error('❌ Generation completion failed:', completionError)
+          setAppState(prev => ({ 
+            ...prev, 
+            isGenerating: false, 
+            isPreviewLoading: false,
+            streamingProgress: undefined
+          }))
+          toast({
+            title: 'Sandbox Creation Failed',
+            description: completionError instanceof Error ? completionError.message : 'Failed to create preview',
+            variant: 'destructive',
+          })
+        }
+      } else {
+        console.log('⚠️ No fragment received in onFinish')
+        setAppState(prev => ({ 
+          ...prev, 
+          isGenerating: false,
+          streamingProgress: undefined
+        }))
+      }
+    },
+  })
+
+  // Sync isGenerating with isLoading from useObject and update streaming progress
+  useEffect(() => {
+    console.log('🔄 isLoading changed:', isLoading)
+    setAppState(prev => ({ 
+      ...prev, 
+      isGenerating: isLoading,
+      streamingProgress: isLoading ? {
+        stage: 'connecting',
+        progress: 0,
+        message: 'Connecting to AI...',
+        canPause: false,
+        isPaused: false
+      } : prev.streamingProgress // Keep existing progress if not loading
+    }))
+  }, [isLoading])
+
+  // Handle streaming object updates and parse progress
+  useEffect(() => {
+    if (object && isLoading) {
+      console.log('🔄 Streaming object update:', object)
+      const content: Message['content'] = []
+      
+      if (object.commentary) {
+        content.push({ type: 'text', text: object.commentary })
+      }
+      
+      if (object.code) {
+        content.push({ type: 'code', text: object.code })
+      }
+      
+      if (content.length === 0) return
+      
+      // Enhanced streaming progress parsing
+      const commentary = object.commentary || ''
+      let streamingProgress: StreamingProgress | undefined
+      
+      // Parse different stages from commentary
+      if (commentary.includes('Analyzing your request') || commentary.includes('Initializing')) {
+        streamingProgress = {
+          stage: 'thinking',
+          progress: 15,
+          message: commentary.includes('Analyzing') ? 'Analyzing your request...' : 'Initializing...',
+          canPause: false,
+          isPaused: false
+        }
+      } else if (commentary.includes('Selected') && commentary.includes('stack')) {
+        streamingProgress = {
+          stage: 'planning',
+          progress: 30,
+          message: commentary,
+          canPause: false,
+          isPaused: false
+        }
+      } else if (commentary.includes('Running') && commentary.includes('agents')) {
+        const match = commentary.match(/Running (\d+) specialized agents/)
+        const agentCount = match ? parseInt(match[1]) : 0
+        streamingProgress = {
+          stage: 'coding',
+          progress: 50,
+          message: `Running ${agentCount} specialized agents...`,
+          canPause: true,
+          isPaused: false
+        }
+      } else if (commentary.includes('Processing...')) {
+        const match = commentary.match(/\((\d+)\/(\d+) agents complete\)/)
+        if (match) {
+          const completed = parseInt(match[1])
+          const total = parseInt(match[2])
+          const progress = 50 + (35 * completed / total)
+          streamingProgress = {
+            stage: 'coding',
+            progress,
+            message: `Processing... (${completed}/${total} agents complete)`,
+            canPause: true,
+            isPaused: false
+          }
+        }
+      } else if (commentary.includes('Assembling final application')) {
+        streamingProgress = {
+          stage: 'reviewing',
+          progress: 90,
+          message: 'Assembling final application...',
+          canPause: false,
+          isPaused: false
+        }
+      } else if (commentary.includes('Generation complete') || commentary.includes('✨')) {
+        streamingProgress = {
+          stage: 'complete',
+          progress: 100,
+          message: commentary.includes('✨') ? commentary : 'Generation complete!',
+          canPause: false,
+          isPaused: false
+        }
+      } else if (commentary.includes('Generated using instant template')) {
+        streamingProgress = {
+          stage: 'complete',
+          progress: 100,
+          message: 'Generated using instant template',
+          canPause: false,
+          isPaused: false
+        }
+      } else if (object.code && !commentary.includes('Error')) {
+        // We have code, show coding progress
+        streamingProgress = {
+          stage: 'coding',
+          progress: 70,
+          message: 'Writing code...',
+          canPause: true,
+          isPaused: false
+        }
+      } else if (commentary.includes('Error')) {
+        streamingProgress = {
+          stage: 'error',
+          progress: 0,
+          message: commentary,
+          canPause: false,
+          isPaused: false,
+          errors: [commentary]
+        }
+      }
+      
+      // Update app state with streaming content and progress
+      setAppState(prev => {
+        const messages = [...prev.messages]
+        const lastMessage = messages[messages.length - 1]
+        
+        if (!lastMessage || lastMessage.role === 'user') {
+          // Add new assistant message for streaming
+          const newMessage: Message = {
+            role: 'assistant',
+            content,
+            object,
+          }
+          messages.push(newMessage)
+          console.log('📝 Added streaming assistant message')
+        } else if (lastMessage.role === 'assistant') {
+          // Update existing assistant message with streaming content
+          messages[messages.length - 1] = {
+            ...lastMessage,
+            content,
+            object,
+          }
+          console.log('📝 Updated streaming assistant message')
+        }
+        
+        return { ...prev, messages, streamingProgress }
+      })
+    }
+  }, [object, isLoading])
+
+  // Handle generation completion
+  const handleGenerationComplete = useCallback(async (fragment: DeepPartial<FragmentSchema>) => {
+    console.log('🎯 Starting generation completion for fragment:', fragment.template)
+    setAppState(prev => ({ ...prev, isPreviewLoading: true }))
+    
+    try {
+      posthog.capture('fragment_generated', {
+        template: fragment?.template,
+      })
+
+      // Check if we should use browser preview
+      const { shouldUseBrowserPreview, templateSupportsBrowserPreview } = await import('@/lib/feature-flags')
+      
+      // Get user ID for feature flag, fallback to 'demo' if no auth
+      let userId = 'demo'
+      try {
+        const { supabase } = await import('@/lib/supabase')
+        if (supabase) {
+          const { data: { session } } = await supabase.auth.getSession()
+          userId = session?.user?.id || 'demo'
+        }
+      } catch (error) {
+        console.log('Auth not available, using demo mode')
+      }
+      
+      let result: ExecutionResult | null = null
+      
+      if (shouldUseBrowserPreview(userId) && templateSupportsBrowserPreview(fragment.template || 'nextjs-developer')) {
+        console.log('🌐 Using browser preview for instant rendering')
+        
+        // For browser preview, we don't create a result object
+        // The FragmentPreview component will handle the browser preview directly
+        result = null
+        
+        posthog.capture('browser_preview_used', { 
+          template: fragment?.template,
+          userId 
+        })
+      } else {
+        console.log('🚀 Using E2B sandbox for execution')
+        
+        result = await getSandbox(
+          appState.currentAppId || `session-${Date.now()}`, 
+          fragment, 
+          appState.currentAppId || undefined
+        )
+
+        if (result && 'url' in result) {
+          posthog.capture('sandbox_created', { url: result.url })
+        }
+      }
+
+      // Update logic to handle null result for browser preview
+      console.log('✅ Preview ready:', result ? 'E2B sandbox' : 'Browser preview')
+
+      // Update app state with results
+      setAppState(prev => ({
+        ...prev,
+        fragment,
+        result,
+        isPreviewLoading: false,
+        currentTab: 'fragment',
+        streamingProgress: undefined // Clear streaming progress
+      }))
+
+      // Create version if system is available
+      if (systemState.versionSystem) {
+        try {
+          const lastMessage = appState.messages[appState.messages.length - 1]
+          const lastContent = lastMessage?.content[0]
+          const messageText = lastContent?.type === 'text' ? lastContent.text : 'New version'
+          const messageDescription = lastContent?.type === 'text' ? lastContent.text : undefined
+          
+          const version = systemState.versionSystem.createVersion(
+            fragment,
+            `Generated: ${messageText.substring(0, 50)}`,
+            messageDescription,
+            'user',
+            ['generated', 'ai-assisted']
+          )
+          
+          setSystemState(prev => ({
+            ...prev,
+            versions: [...prev.versions, version]
+          }))
+          console.log('📦 Created version:', version.metadata.message)
+        } catch (versionError) {
+          console.error('Failed to create version:', versionError)
+        }
+      }
+
+      // Auto-save - only pass result if it exists
+      if (result) {
+        await handleAutoSave(fragment, result)
+      } else {
+        // For browser preview, create a minimal result for saving
+        await handleAutoSave(fragment, {
+          sbxId: `browser-${Date.now()}`,
+          template: fragment.template || 'nextjs-developer'
+        } as ExecutionResult)
+      }
+      
+      console.log('🎉 Generation completion successful!')
+    } catch (error) {
+      console.error('❌ Generation completion error:', error)
+      
+      // Re-throw the error to be handled by onFinish
+      throw error
+    }
+  }, [appState.currentAppId, appState.messages, systemState.versionSystem, posthog, getSandbox])
+
+  // Auto-save handler with debouncing
+  const handleAutoSave = useDebouncedCallback(async (
+    fragment: DeepPartial<FragmentSchema>, 
+    result: ExecutionResult
+  ) => {
+    if (!systemState.appLibrary) return
+
+    setAppState(prev => ({ ...prev, isAutoSaving: true }))
+
+    try {
+      const savedApp = await trackNetworkRequest(
+        'auto-save',
+        '/api/save-app',
+        'POST',
+        async () => {
+          const firstUserMessage = appState.messages.find(m => m.role === 'user')
+          const firstUserContent = firstUserMessage?.content[0]
+          const firstUserText = firstUserContent?.type === 'text' ? firstUserContent.text : 'App'
+          const name = appState.appName || generateAppName(firstUserText)
+
+          return systemState.appLibrary!.saveApp({
+            id: appState.currentAppId || undefined,
+            name,
+            description: firstUserText || '',
+            template: appState.selectedTemplate === 'auto' ? 'auto' : appState.selectedTemplate,
+            code: fragment,
+            messages: appState.messages
+              .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+              .map(msg => ({
+                id: crypto.randomUUID(),
+                role: msg.role as 'user' | 'assistant',
+                content: msg.content.map(c => c.type === 'text' ? c.text : '').join('\n'),
+                createdAt: new Date().toISOString(),
+              })),
+            lastSandboxId: result.sbxId,
+            sandboxConfig: result,
+            fragmentVersions: systemState.versions.map(v => ({
+              fragment: v.code,
+              result: undefined, // We don't have execution result for each version
+              timestamp: v.metadata.timestamp
+            })),
+            currentVersionIndex: systemState.versions.length - 1
+          })
+        },
+        { ttl: 30000 } // Cache for 30 seconds
+      )
+
+      if (!appState.currentAppId) {
+        setAppState(prev => ({ ...prev, currentAppId: savedApp.id }))
+      }
+
+      toast({
+        title: 'App saved',
+        description: `${savedApp.name} has been saved successfully.`,
+      })
+    } catch (error) {
+      console.error('Auto-save error:', error)
+      toast({
+        title: 'Save failed',
+        description: 'Could not save the app. Please try again.',
+        variant: 'destructive'
+      })
+    } finally {
+      setTimeout(() => setAppState(prev => ({ ...prev, isAutoSaving: false })), 1500)
+    }
+  }, 2000, { // Debounce for 2 seconds
+    trailing: true,
+    maxWait: 10000 // Max wait 10 seconds
+  })
+
+  // Generate app name from prompt
+  const generateAppName = useCallback((prompt: string): string => {
+    const words = prompt.toLowerCase().split(' ')
+    const appKeywords = ['app', 'application', 'tool', 'calculator', 'generator', 'converter', 'manager', 'dashboard', 'tracker', 'game', 'quiz', 'form']
+    const actionKeywords = ['create', 'build', 'make', 'generate', 'design', 'develop']
+    
+    const filteredWords = words.filter(word => 
+      !actionKeywords.includes(word) && 
+      !['a', 'an', 'the', 'with', 'that', 'for', 'to', 'of', 'in', 'on', 'at', 'by'].includes(word) &&
+      word.length > 2
+    )
+    
+    const appType = words.find(word => appKeywords.includes(word))
+    
+    if (filteredWords.length > 0) {
+      const mainWords = filteredWords.slice(0, 3).map(word => 
+        word.charAt(0).toUpperCase() + word.slice(1)
+      ).join(' ')
+      
+      if (appType && !mainWords.toLowerCase().includes(appType)) {
+        return `${mainWords} ${appType.charAt(0).toUpperCase() + appType.slice(1)}`
+      }
+      return mainWords
+    }
+    
+    return `App ${new Date().toLocaleDateString()}`
+  }, [])
+
+  // Handle fork app
   const handleForkApp = useCallback(async (shareId: string) => {
     try {
       const result = await forkApp(shareId)
@@ -91,28 +866,25 @@ function SimplifiedHomeContent() {
           description: result.error || 'Unknown error occurred',
           variant: 'destructive'
         })
-        // Clear the fork parameter
         setForkShareId(null)
         return
       }
       
-      // Set up the forked app
       const { appData } = result
-      setAppName(appData.name)
-      setSelectedTemplate(appData.template as 'auto' | TemplateId)
-      setFragment(appData.code)
-      
-      // Create initial message
-      const forkMessage: Message = {
-        role: 'user',
-        content: [{ 
-          type: 'text', 
-          text: appData.description || `Forked from shared app: ${shareId}` 
+      setAppState(prev => ({
+        ...prev,
+        appName: appData.name,
+        selectedTemplate: appData.template as 'auto' | TemplateId,
+        fragment: appData.code,
+        messages: [{
+          role: 'user',
+          content: [{ 
+            type: 'text', 
+            text: appData.description || `Forked from shared app: ${shareId}` 
+          }]
         }]
-      }
-      setMessages([forkMessage])
+      }))
       
-      // Clear the fork parameter after loading
       setForkShareId(null)
       
       toast({
@@ -120,25 +892,55 @@ function SimplifiedHomeContent() {
         description: 'You can now edit and save your own version.',
       })
       
-      // If there's code, create a sandbox
+      // Create sandbox if there's code
       if (appData.code) {
-        setIsPreviewLoading(true)
+        setAppState(prev => ({ ...prev, isPreviewLoading: true }))
         try {
-          const response = await fetch('/api/sandbox', {
-            method: 'POST',
-            body: JSON.stringify({
-              fragment: appData.code,
-              sessionId: appData.id,
-            }),
-          })
+          // Check if we should use browser preview
+          const { shouldUseBrowserPreview, templateSupportsBrowserPreview } = await import('@/lib/feature-flags')
           
-          const sandboxResult = await response.json()
-          setResult(sandboxResult)
-          setCurrentTab('fragment')
+          // Get user ID for feature flag, fallback to 'demo' if no auth
+          let userId = 'demo'
+          try {
+            const { supabase } = await import('@/lib/supabase')
+            if (supabase) {
+              const { data: { session } } = await supabase.auth.getSession()
+              userId = session?.user?.id || 'demo'
+            }
+          } catch (error) {
+            console.log('Auth not available, using demo mode for fork')
+          }
+          
+          let sandboxResult: ExecutionResult | null = null
+          
+          if (shouldUseBrowserPreview(userId) && templateSupportsBrowserPreview(appData.template || 'nextjs-developer')) {
+            console.log('🌐 Using browser preview for forked app')
+            
+            // For browser preview, don't create a result
+            sandboxResult = null
+          } else {
+            console.log('🚀 Using E2B sandbox for forked app')
+            
+            const response = await fetch('/api/sandbox', {
+              method: 'POST',
+              body: JSON.stringify({
+                fragment: appData.code,
+                sessionId: appData.id,
+              }),
+            })
+            
+            sandboxResult = await response.json()
+          }
+          
+          setAppState(prev => ({
+            ...prev,
+            result: sandboxResult,
+            currentTab: 'fragment',
+            isPreviewLoading: false
+          }))
         } catch (error) {
-          console.error('Error creating sandbox for forked app:', error)
-        } finally {
-          setIsPreviewLoading(false)
+          console.error('Error creating preview for forked app:', error)
+          setAppState(prev => ({ ...prev, isPreviewLoading: false }))
         }
       }
     } catch (error) {
@@ -151,833 +953,793 @@ function SimplifiedHomeContent() {
       setForkShareId(null)
     }
   }, [setForkShareId])
-  
+
+  // Handle fork parameter with useEffect after handleForkApp is defined
   useEffect(() => {
-    messagesRef.current = messages
-  }, [messages])
-  
-  // Update URL when app ID changes
-  useEffect(() => {
-    if (currentAppId !== urlAppId) {
-      setUrlAppId(currentAppId)
+    if (debouncedForkShareId && appState.messages.length === 0) {
+      handleForkApp(debouncedForkShareId)
     }
-  }, [currentAppId, urlAppId, setUrlAppId])
-  
-  // Handle fork parameter on mount
-  useEffect(() => {
-    if (forkShareId && messages.length === 0) {
-      // Load the forked app
-      handleForkApp(forkShareId)
-    }
-  }, [forkShareId, messages.length, handleForkApp])
+  }, [debouncedForkShareId, appState.messages.length, handleForkApp])
 
-  const [languageModel, setLanguageModel] = useLocalStorage<LLMModelConfig>(
-    'languageModel',
-    {
-      model: 'anthropic/claude-sonnet-4',
-    },
-  )
+  // Handle input change
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value)
+  }, [])
 
-  const posthog = usePostHog()
-
-  const filteredModels = modelsList.models.filter((model: any) => {
-    if (process.env.NEXT_PUBLIC_HIDE_LOCAL_MODELS) {
-      return model.providerId !== 'ollama'
-    }
-    return true
-  })
-
-  const currentModel = filteredModels.find(
-    (model: any) => model.id === languageModel.model,
-  ) || filteredModels[0] // Fallback to first model if not found
-  const currentTemplate = useMemo(() => 
-    selectedTemplate === 'auto' ? templates : { [selectedTemplate]: templates[selectedTemplate] },
-    [selectedTemplate]
-  )
-
-  // Add state to history
-  const addToHistory = useCallback((newMessages: Message[], newFragment?: DeepPartial<FragmentSchema>, newResult?: ExecutionResult) => {
-    const newEntry: HistoryEntry = {
-      messages: newMessages,
-      fragment: newFragment,
-      result: newResult,
-    }
-    
-    // If we're not at the end of history, remove future entries
-    const newHistory = history.slice(0, historyIndex + 1)
-    newHistory.push(newEntry)
-    
-    setHistory(newHistory)
-    setHistoryIndex(newHistory.length - 1)
-  }, [history, historyIndex])
-
-  // Use AI SDK object for generating
-  const { object, submit, isLoading, stop, error } = useObject({
-    api: '/api/chat',
-    schema,
-    onError: (error) => {
-      console.error('Error submitting request:', error)
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      })
-    },
-    onFinish: async ({ object: fragment, error }) => {
-      if (!error && fragment) {
-        setIsPreviewLoading(true)
-        console.log('fragment', fragment)
-        posthog.capture('fragment_generated', {
-          template: fragment?.template,
-        })
-        
-        const result = await getSandbox(currentAppId || `session-${Date.now()}`, fragment)
-        
-        if (result) {
-          console.log('result', result)
-          if ('url' in result) {
-            posthog.capture('sandbox_created', { url: result.url })
-          }
-          
-          setResult(result)
-          setCurrentTab('fragment')
-          
-          // Add to fragment versions
-          const newVersion: FragmentVersion = {
-            fragment,
-            result,
-            timestamp: Date.now()
-          }
-          const newVersions = [...fragmentVersions, newVersion]
-          setFragmentVersions(newVersions)
-          setCurrentVersionIndex(newVersions.length - 1)
-          
-          // Warm up adjacent versions for instant switching
-          sandboxVersionWarmup.warmupAdjacentVersions(
-            newVersions,
-            newVersions.length - 1,
-            currentAppId || undefined
-          )
-          
-          // Update the last message with the result
-          const currentMessages = messagesRef.current
-          if (currentMessages.length > 0 && currentMessages[currentMessages.length - 1].role === 'assistant') {
-            const updated = [...currentMessages]
-            updated[updated.length - 1] = {
-              ...updated[updated.length - 1],
-              result,
-            }
-            setMessages(updated)
-            addToHistory(updated, fragment, result)
-          }
-          
-          // Auto-save the app when code is generated
-          setIsAutoSaving(true)
-          const firstUserMessage = currentMessages.find(m => m.role === 'user')
-          const name = appName || generateAppName(
-            firstUserMessage?.content[0]?.type === 'text' ? firstUserMessage.content[0].text : 'App'
-          )
-          
-          // Update fragment versions before saving
-          const updatedFragmentVersions = [...newVersions]
-          
-          const savedApp = appLibrary.saveApp({
-            id: currentAppId || undefined,
-            name,
-            description: firstUserMessage?.content[0]?.type === 'text' ? firstUserMessage.content[0].text : '',
-            template: selectedTemplate === 'auto' ? 'auto' : selectedTemplate,
-            code: fragment,
-            messages: currentMessages
-              .filter(msg => msg.role === 'user' || msg.role === 'assistant')
-              .map(msg => ({
-                id: crypto.randomUUID(),
-                role: msg.role as 'user' | 'assistant',
-                content: msg.content.map(c => c.type === 'text' ? c.text : '').join('\n'),
-                createdAt: new Date().toISOString(),
-              })),
-            lastSandboxId: result.sbxId,
-            sandboxConfig: result,
-            fragmentVersions: updatedFragmentVersions,
-            currentVersionIndex: updatedFragmentVersions.length - 1
-          })
-          
-          if (!currentAppId) {
-            setCurrentAppId(savedApp.id)
-          }
-          if (!appName) {
-            setAppName(savedApp.name)
-          }
-          
-          setTimeout(() => setIsAutoSaving(false), 1500)
-        } else {
-          toast({
-            title: 'Error creating sandbox',
-            description: sandboxError || 'An unknown error occurred.',
-            variant: 'destructive',
-          })
-        }
-        setIsPreviewLoading(false)
-        
-        // Update the last message with the result
-        const currentMessages = messagesRef.current
-        if (currentMessages.length > 0 && currentMessages[currentMessages.length - 1].role === 'assistant') {
-          const updated = [...currentMessages]
-          updated[updated.length - 1] = {
-            ...updated[updated.length - 1],
-            result,
-          }
-          setMessages(updated)
-          addToHistory(updated, fragment, result)
-        }
-      }
-    },
-  })
-
-  // Helper function to generate app name from prompt
-  function generateAppName(prompt: string): string {
-    // Extract key words from the prompt
-    const words = prompt.toLowerCase().split(' ')
-    
-    // Common app-related keywords to look for
-    const appKeywords = ['app', 'application', 'tool', 'calculator', 'generator', 'converter', 'manager', 'dashboard', 'tracker', 'game', 'quiz', 'form']
-    const actionKeywords = ['create', 'build', 'make', 'generate', 'design', 'develop']
-    
-    // Remove action keywords and common words
-    const filteredWords = words.filter(word => 
-      !actionKeywords.includes(word) && 
-      !['a', 'an', 'the', 'with', 'that', 'for', 'to', 'of', 'in', 'on', 'at', 'by'].includes(word) &&
-      word.length > 2
-    )
-    
-    // Find app type keyword
-    const appType = words.find(word => appKeywords.includes(word))
-    
-    // Generate name based on what we found
-    if (filteredWords.length > 0) {
-      const mainWords = filteredWords.slice(0, 3).map(word => 
-        word.charAt(0).toUpperCase() + word.slice(1)
-      ).join(' ')
-      
-      if (appType && !mainWords.toLowerCase().includes(appType)) {
-        return `${mainWords} ${appType.charAt(0).toUpperCase() + appType.slice(1)}`
-      }
-      return mainWords
-    }
-    
-    // Fallback name
-    return `App ${new Date().toLocaleDateString()}`
-  }
-
-  // Version navigation functions
-  const navigateToVersion = useCallback(async (index: number) => {
-    if (index >= 0 && index < fragmentVersions.length) {
-      const version = fragmentVersions[index]
-      setFragment(version.fragment)
-      setCurrentVersionIndex(index)
-      setCurrentTab('fragment')
-      
-      // Check if we have a cached sandbox first
-      const cachedResult = sandboxVersionWarmup.getCachedSandbox(version.fragment, currentAppId || undefined)
-      if (cachedResult) {
-        setResult(cachedResult)
-        setIsPreviewLoading(false)
-        
-        // Warm up adjacent versions for next navigation
-        sandboxVersionWarmup.warmupAdjacentVersions(fragmentVersions, index, currentAppId || undefined)
-        return
-      }
-      
-      // Create a new sandbox if not cached
-      if (version.fragment) {
-        setIsPreviewLoading(true)
-        try {
-          const newResult = await sandboxVersionWarmup.getOrCreateSandbox(
-            version.fragment,
-            currentAppId || undefined
-          )
-          
-          if (newResult) {
-            setResult(newResult)
-            
-            // Update the version with the new sandbox result
-            const updatedVersions = [...fragmentVersions]
-            updatedVersions[index] = {
-              ...version,
-              result: newResult
-            }
-            setFragmentVersions(updatedVersions)
-            
-            // Auto-save the updated versions
-            if (currentAppId) {
-              const app = appLibrary.getApp(currentAppId)
-              if (app) {
-                appLibrary.saveApp({
-                  ...app,
-                  fragmentVersions: updatedVersions,
-                  currentVersionIndex: index,
-                  sandboxConfig: newResult,
-                  lastSandboxId: newResult.sbxId
-                })
-              }
-            }
-            
-            // Warm up adjacent versions for next navigation
-            sandboxVersionWarmup.warmupAdjacentVersions(fragmentVersions, index, currentAppId || undefined)
-          } else {
-            throw new Error('Failed to create sandbox')
-          }
-        } catch (error) {
-          console.error('Error creating sandbox for version:', error)
-          toast({
-            title: 'Failed to load preview',
-            description: 'Could not create sandbox for this version.',
-            variant: 'destructive'
-          })
-        } finally {
-          setIsPreviewLoading(false)
-        }
-      }
-    }
-  }, [fragmentVersions, currentAppId, appLibrary])
-
-  const goToPreviousVersion = useCallback(() => {
-    if (currentVersionIndex > 0) {
-      navigateToVersion(currentVersionIndex - 1)
-    }
-  }, [currentVersionIndex, navigateToVersion])
-
-  const goToNextVersion = useCallback(() => {
-    if (currentVersionIndex < fragmentVersions.length - 1) {
-      navigateToVersion(currentVersionIndex + 1)
-    }
-  }, [currentVersionIndex, fragmentVersions.length, navigateToVersion])
-
-  // Update fragment when object changes
-  useEffect(() => {
-    if (object) {
-      setFragment(object)
-      
-      const content: Message['content'] = []
-      
-      if ('commentary' in object) {
-        content.push({ type: 'text', text: object.commentary || '' })
-      }
-      
-      if (object.code) {
-        content.push({ type: 'code', text: object.code })
-      }
-      
-      if (content.length === 0) return
-      
-      const currentMessages = messagesRef.current
-      const lastMessage = currentMessages[currentMessages.length - 1]
-        
-      if (!lastMessage || lastMessage.role === 'user') {
-        // Add new assistant message
-        const newMessage: Message = {
-          role: 'assistant',
-          content,
-          object,
-        }
-        const newMessages = [...currentMessages, newMessage]
-        setMessages(newMessages)
-        // Don't add to history during streaming, wait for onFinish
-      } else if (lastMessage.role === 'assistant') {
-        // Update existing assistant message
-        const updated = [...currentMessages]
-        updated[updated.length - 1] = {
-          ...lastMessage,
-          content,
-          object,
-        }
-        setMessages(updated)
-        // Don't add to history during streaming, wait for onFinish
-      }
-    }
-  }, [object])
-
-  // Auto-save current state periodically
-  useEffect(() => {
-    if (!currentAppId || messages.length === 0) return
-    
-    const saveInterval = setInterval(() => {
-      const app = appLibrary.getApp(currentAppId)
-      if (app) {
-        appLibrary.saveApp({
-          ...app,
-          messages: messages
-            .filter(msg => msg.role === 'user' || msg.role === 'assistant')
-            .map(msg => ({
-              id: crypto.randomUUID(),
-              role: msg.role as 'user' | 'assistant',
-              content: msg.content.map(c => c.type === 'text' ? c.text : '').join('\n'),
-              createdAt: new Date().toISOString(),
-            })),
-          code: fragment,
-          template: selectedTemplate === 'auto' ? 'auto' : selectedTemplate,
-          sandboxConfig: result,
-          fragmentVersions: fragmentVersions,
-          currentVersionIndex: currentVersionIndex
-        })
-      }
-    }, 30000) // Auto-save every 30 seconds
-    
-    return () => clearInterval(saveInterval)
-  }, [currentAppId, messages, fragment, selectedTemplate, result, fragmentVersions, currentVersionIndex, appLibrary])
-
-  const handleNewApp = useCallback(async () => {
-    // Close current sandbox
-    await singleActiveSandboxManager.closeCurrent()
-    
-    // Clear sandbox cache
-    if (currentAppId) {
-      sandboxVersionWarmup.clearSessionCache(currentAppId)
-    }
-    
-    // Clear state
-    setMessages([])
-    setChatInput('')
-    setFiles([])
-    setCurrentAppId(null)
-    setAppName('')
-    setFragment(undefined)
-    setResult(undefined)
-    setCurrentTab('code')
-    setFragmentVersions([])
-    setCurrentVersionIndex(-1)
-    
-    toast({
-      title: 'New app started',
-      description: 'Ready to create something new!',
-    })
-    
-    // Reset history
-    setHistory([{ messages: [], fragment: undefined, result: undefined }])
-    setHistoryIndex(0)
-  }, [currentAppId])
-
-  const handleSaveToLibrary = useCallback(() => {
-    const name = appName || `App ${new Date().toLocaleDateString()}`
-    const firstUserMessage = messages.find(m => m.role === 'user')
-    
-    const savedApp = appLibrary.saveApp({
-      id: currentAppId || undefined,
-      name,
-      description: firstUserMessage?.content[0]?.type === 'text' ? firstUserMessage.content[0].text : '',
-      template: selectedTemplate === 'auto' ? 'auto' : selectedTemplate,
-      code: fragment,
-      messages: messages
-        .filter(msg => msg.role === 'user' || msg.role === 'assistant')
-        .map(msg => ({
-          id: crypto.randomUUID(),
-          role: msg.role as 'user' | 'assistant',
-          content: msg.content.map(c => c.type === 'text' ? c.text : '').join('\n'),
-          createdAt: new Date().toISOString(),
-        })),
-      lastSandboxId: result?.sbxId,
-      sandboxConfig: result,
-      fragmentVersions: fragmentVersions,
-      currentVersionIndex: currentVersionIndex
-    })
-    
-    setCurrentAppId(savedApp.id)
-    
-    toast({
-      title: 'App saved',
-      description: `"${name}" has been saved to your library.`,
-    })
-  }, [appName, currentAppId, messages, fragment, selectedTemplate, result, fragmentVersions, currentVersionIndex, appLibrary])
-
-  const { 
-    getSandbox, 
-    releaseSandbox, 
-    isLoading: isSandboxLoading, 
-    error: sandboxError 
-  } = useSandboxManager()
-
-  const handleLoadFromLibrary = useCallback(async (app: SavedApp) => {
-    console.log('Loading app from library:', app.name)
-    
-    // Close current sandbox
-    await singleActiveSandboxManager.closeCurrent()
-    
-    // Load app state
-    setCurrentAppId(app.id)
-    setAppName(app.name)
-    setSelectedTemplate(app.template as 'auto' | TemplateId)
-    
-    // Restore fragment versions if available
-    if (app.fragmentVersions && app.fragmentVersions.length > 0) {
-      setFragmentVersions(app.fragmentVersions)
-      const currentVersionIdx = app.currentVersionIndex ?? app.fragmentVersions.length - 1
-      setCurrentVersionIndex(currentVersionIdx)
-      
-      // Load the current version
-      const currentVersion = app.fragmentVersions[currentVersionIdx]
-      setFragment(currentVersion.fragment)
-      setResult(undefined) // Don't set the old result yet - wait until we create/verify sandbox
-    } else {
-      // Fallback to old format - create a single version from app.code
-      setFragment(app.code)
-      setResult(undefined) // Don't set the old result yet
-      
-      if (app.code) {
-        const version: FragmentVersion = {
-          fragment: app.code,
-          result: app.sandboxConfig,
-          timestamp: new Date(app.updatedAt).getTime()
-        }
-        setFragmentVersions([version])
-        setCurrentVersionIndex(0)
-      } else {
-        setFragmentVersions([])
-        setCurrentVersionIndex(-1)
-      }
-    }
-    
-    // Convert app messages to chat messages
-    const chatMessages: Message[] = app.messages.map((msg, index) => ({
-      role: msg.role,
-      content: [{ type: 'text', text: msg.content }],
-      ...(msg.role === 'assistant' && index === app.messages.length - 1 && app.code ? { 
-        object: app.code, 
-        result: app.sandboxConfig 
-      } : {})
+  // Handle streaming pause
+  const handleStreamingPause = useCallback(() => {
+    setAppState(prev => ({
+      ...prev,
+      streamingProgress: prev.streamingProgress ? {
+        ...prev.streamingProgress,
+        isPaused: !prev.streamingProgress.isPaused,
+        message: prev.streamingProgress.isPaused ? 'Resuming generation...' : 'Paused generation'
+      } : undefined
     }))
-    
-    setMessages(chatMessages)
-    
-    // If there's code, switch to preview tab
-    if (app.code || (app.fragmentVersions && app.fragmentVersions.length > 0)) {
-      setCurrentTab('fragment')
-      
-      // Get the current fragment and result
-      const currentFragment = app.fragmentVersions && app.fragmentVersions.length > 0 
-        ? app.fragmentVersions[app.currentVersionIndex ?? app.fragmentVersions.length - 1].fragment
-        : app.code
-      
-      // Always create a new sandbox when loading from library
-      if (currentFragment) {
-        setIsPreviewLoading(true)
-        try {
-          const result = await getSandbox(app.id, currentFragment)
-          if (result) {
-            console.log('Created new sandbox for loaded app:', result.sbxId)
-            setResult(result)
-          } else {
-             throw new Error('Failed to get a sandbox.')
-          }
-        } catch (error) {
-          console.error('Error loading app from library:', error)
-          toast({
-            title: 'Failed to load app',
-            description: error instanceof Error ? error.message : 'Unknown error',
-            variant: 'destructive',
-          })
-        } finally {
-          setIsPreviewLoading(false)
-        }
-      }
-    }
-    
-    toast({
-      title: 'App loaded',
-      description: `"${app.name}" has been loaded from your library.`,
-    })
-  }, [appLibrary, getSandbox])
+  }, [])
 
-  // Check if we need to load an app from library on mount
-  useEffect(() => {
-    if (urlAppId) {
-      const app = appLibrary.getApp(urlAppId)
-      if (app) {
-        handleLoadFromLibrary(app)
-      }
-    } else {
-      // Fallback: check sessionStorage for backwards compatibility
-      const loadAppId = sessionStorage.getItem('loadAppId')
-      if (loadAppId) {
-        sessionStorage.removeItem('loadAppId')
-        const app = appLibrary.getApp(loadAppId)
-        if (app) {
-          handleLoadFromLibrary(app)
-          // Update URL to include app ID
-          setUrlAppId(loadAppId)
-        }
-      }
-    }
-  }, [urlAppId, appLibrary, handleLoadFromLibrary, setUrlAppId])
-
-  const handleClear = useCallback(() => {
+  // Handle streaming cancel
+  const handleStreamingCancel = useCallback(() => {
+    console.log('🛑 Cancelling generation')
     stop()
-    
-    // Clear sandbox cache
-    if (currentAppId) {
-      sandboxVersionWarmup.clearSessionCache(currentAppId)
-    }
-    
-    const clearedState = {
-      messages: [],
-      fragment: undefined,
-      result: undefined,
-    }
-    setMessages(clearedState.messages)
-    setChatInput('')
-    setFiles([])
-    setFragment(clearedState.fragment)
-    setResult(clearedState.result)
-    setCurrentTab('code')
-    setFragmentVersions([])
-    setCurrentVersionIndex(-1)
-    addToHistory(clearedState.messages, clearedState.fragment, clearedState.result)
-  }, [stop, addToHistory, currentAppId])
+    setAppState(prev => ({
+      ...prev,
+      isGenerating: false,
+      streamingProgress: undefined
+    }))
+    toast({
+      title: 'Generation cancelled',
+      description: 'The generation has been stopped.',
+    })
+  }, [stop])
 
-  const handleUndo = useCallback(() => {
-    if (historyIndex > 0) {
-      stop() // Stop any ongoing generation
-      const newIndex = historyIndex - 1
-      const entry = history[newIndex]
-      setHistoryIndex(newIndex)
-      setMessages(entry.messages)
-      setFragment(entry.fragment)
-      setResult(entry.result)
-      // Reset to code tab if no result
-      if (!entry.result) {
-        setCurrentTab('code')
-      }
-    }
-  }, [history, historyIndex, stop])
-
-  const handleRedo = useCallback(() => {
-    if (historyIndex < history.length - 1) {
-      stop() // Stop any ongoing generation
-      const newIndex = historyIndex + 1
-      const entry = history[newIndex]
-      setHistoryIndex(newIndex)
-      setMessages(entry.messages)
-      setFragment(entry.fragment)
-      setResult(entry.result)
-      // Switch to preview tab if there's a result
-      if (entry.result) {
-        setCurrentTab('fragment')
-      }
-    }
-  }, [history, historyIndex, stop])
-
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  // Handle submit
+  const handleSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-
-    if (isLoading) {
-      stop()
+    
+    if (!input.trim()) {
+      console.log('❌ Empty input, not submitting')
       return
     }
 
-    const content: Message['content'] = [{ type: 'text', text: chatInput }]
-    const images = await toMessageImage(files)
+    console.log('🚀 Submitting message:', input)
 
-    if (images.length > 0) {
-      images.forEach((image) => {
-        content.push({ type: 'image', image })
+    // Initialize app if needed
+    if (!appState.currentAppId) {
+      const newAppId = `app-${Date.now()}`
+      console.log('🆔 Creating new app ID:', newAppId)
+      setAppState(prev => ({ ...prev, currentAppId: newAppId }))
+      await initializeSystems(newAppId)
+    }
+
+    const newMessage: Message = {
+      role: 'user',
+      content: [{ type: 'text', text: input }]
+    }
+
+    // Create updated messages array
+    const updatedMessages = [...appState.messages, newMessage]
+    console.log('📝 Messages before submit:', updatedMessages.length)
+    
+    // Clear input immediately for better UX
+    const inputValue = input
+    setInput('')
+
+    // Add message to state and set generating state
+    setAppState(prev => ({
+      ...prev,
+      messages: updatedMessages,
+      isGenerating: true,
+      streamingProgress: {
+        stage: 'connecting',
+        progress: 0,
+        message: 'Connecting to AI...',
+        canPause: false,
+        isPaused: false
+      }
+    }))
+
+    console.log('🔄 Calling submit with', updatedMessages.length, 'messages')
+    
+    try {
+      await submit({
+        messages: toAISDKMessages(updatedMessages),
+        userID: 'user',
+        template: appState.selectedTemplate,
+        model: languageModel.model,
+        config: currentModel,
+      })
+      console.log('✅ Submit call completed successfully')
+    } catch (error) {
+      console.error('❌ Submit error:', error)
+      setAppState(prev => ({ 
+        ...prev, 
+        isGenerating: false,
+        streamingProgress: undefined
+      }))
+      
+      // Restore input on error
+      setInput(inputValue)
+      
+      toast({
+        title: 'Submit Error',
+        description: error instanceof Error ? error.message : 'Failed to submit message',
+        variant: 'destructive',
       })
     }
+  }, [input, appState, languageModel, currentModel, submit, initializeSystems])
 
-    const userMessage: Message = {
-      role: 'user',
-      content,
+  // Handle diff update
+  const handleDiffUpdate = useCallback(async (prompt: string) => {
+    if (!systemState.diffSystem || !appState.fragment) {
+      toast({
+        title: 'Diff update unavailable',
+        description: 'Please generate some code first.',
+        variant: 'destructive'
+      })
+      return
     }
-    
-    const newMessages = [...messages, userMessage]
-    setMessages(newMessages)
-    addToHistory(newMessages, fragment, result)
 
-    submit({
-      messages: toAISDKMessages(newMessages),
-      template: currentTemplate,
-      model: currentModel,
-      config: languageModel,
-    })
+    try {
+      const request: DiffUpdateRequest = {
+        userPrompt: prompt,
+        currentCode: appState.fragment,
+        author: 'user',
+        title: `Update: ${prompt.substring(0, 50)}...`,
+        description: prompt,
+        changeType: 'feature',
+        priority: 'medium'
+      }
 
-    setChatInput('')
-    setFiles([])
-    setCurrentTab('code')
+      const result = await systemState.diffSystem.processUpdate(request, (progress) => {
+        setAppState(prev => ({
+          ...prev,
+          streamingProgress: {
+            stage: progress.stage as any,
+            progress: progress.progress,
+            message: progress.details?.step || 'Processing...',
+            errors: progress.errors,
+            warnings: progress.warnings
+          }
+        }))
+      })
 
-    posthog.capture('chat_submit', {
-      template: selectedTemplate,
-      model: languageModel.model,
-    })
-  }
-
-  const retry = useCallback(() => {
-    submit({
-      messages: toAISDKMessages(messages),
-      template: currentTemplate,
-      model: currentModel,
-      config: languageModel,
-    })
-  }, [messages, currentTemplate, currentModel, languageModel, submit])
-
-  function setCurrentPreview(preview: {
-    fragment: DeepPartial<FragmentSchema> | undefined
-    result: ExecutionResult | undefined
-  }) {
-    setFragment(preview.fragment || undefined)
-    setResult(preview.result)
-    // Switch to preview tab if there's a result
-    if (preview.result) {
-      setCurrentTab('fragment')
+      if (result.success && result.previewCode) {
+        // If previewCode is a string, try to parse it as JSON, otherwise use as-is
+        let parsedCode: DeepPartial<FragmentSchema> | undefined = result.previewCode as any
+        if (typeof result.previewCode === 'string') {
+          try {
+            parsedCode = JSON.parse(result.previewCode) as DeepPartial<FragmentSchema>
+          } catch (error) {
+            console.error('Failed to parse previewCode as JSON:', error)
+            // If parsing fails, assume it's already the correct format
+            parsedCode = result.previewCode as any
+          }
+        }
+        
+        setAppState(prev => ({
+          ...prev,
+          fragment: parsedCode,
+          streamingProgress: undefined
+        }))
+        
+        toast({
+          title: 'Update applied',
+          description: 'Your changes have been applied successfully.',
+        })
+      } else {
+        throw new Error(result.errors.join(', '))
+      }
+    } catch (error) {
+      console.error('Diff update error:', error)
+      toast({
+        title: 'Update failed',
+        description: error instanceof Error ? error.message : 'Unknown error occurred',
+        variant: 'destructive'
+      })
     }
-  }
+  }, [systemState.diffSystem, appState.fragment])
 
-  const handleEditMessage = useCallback((index: number, newContent: string) => {
-    // Stop any ongoing generation
-    stop()
-    
-    // Update the message content
-    const updatedMessages = [...messages]
-    updatedMessages[index] = {
-      ...updatedMessages[index],
-      content: [{ type: 'text', text: newContent }]
+  // Handle conversational modification
+  const handleConversationalModification = useCallback(async (message: string) => {
+    if (!systemState.conversationalSystem || !appState.fragment) return
+
+    try {
+      const response = await systemState.conversationalSystem.processConversation(
+        appState.currentAppId || 'session',
+        message,
+        JSON.stringify(appState.fragment),
+        {
+          userId: 'user',
+          enableSuggestions: true,
+          requireConfirmation: true
+        }
+      )
+
+      setSystemState(prev => ({
+        ...prev,
+        conversationResponse: response
+      }))
+    } catch (error) {
+      console.error('Conversational modification error:', error)
     }
-    
-    // Remove all messages after the edited one
-    const messagesUpToEdit = updatedMessages.slice(0, index + 1)
-    setMessages(messagesUpToEdit)
-    
-    // Clear fragment and result since we're resubmitting
-    setFragment(undefined)
-    setResult(undefined)
-    setCurrentTab('code')
-    
-    // Add to history
-    addToHistory(messagesUpToEdit, undefined, undefined)
-    
-    // Resubmit the conversation
-    submit({
-      messages: toAISDKMessages(messagesUpToEdit),
-      template: currentTemplate,
-      model: currentModel,
-      config: languageModel,
-    })
-  }, [messages, stop, currentTemplate, currentModel, languageModel, submit, addToHistory])
+  }, [systemState.conversationalSystem, appState.fragment, appState.currentAppId])
 
-  // --- Pre-warm a sandbox when the library is opened ---
-  useEffect(() => {
-    if (isLibraryOpen) {
-      console.log('[Pre-warm] Library opened, sending pre-warm request...')
-      fetch('/api/sandbox/prewarm', { method: 'PUT' })
-        .catch(err => console.error('[Pre-warm] Failed to send pre-warm request:', err))
+  // UI event handlers
+  const handleTabChange = useCallback((tab: string) => {
+    setUIState(prev => ({ ...prev, currentTab: tab as UIState['currentTab'] }))
+  }, [])
+
+  const handleLayoutChange = useCallback((layout: UIState['layout']) => {
+    setUIState(prev => ({ ...prev, layout }))
+  }, [])
+
+  const handlePanelToggle = useCallback((panel: 'left' | 'right', collapsed: boolean) => {
+    if (panel === 'left') {
+      setUIState(prev => ({ ...prev, leftPanelCollapsed: collapsed }))
+    } else {
+      setUIState(prev => ({ ...prev, rightPanelCollapsed: collapsed }))
     }
-  }, [isLibraryOpen])
+  }, [])
 
-  return (
-    <main className="flex flex-col h-screen">
-      <NavBar
-        session={null}
-        showLogin={() => {}}
-        signOut={() => {}}
-        onClear={handleClear}
-        canClear={messages.length > 0}
-        onSocialClick={() => {}}
-        onUndo={handleUndo}
-        canUndo={historyIndex > 0}
-        onNewChat={handleNewApp}
-        onRedo={handleRedo}
-        canRedo={historyIndex < history.length - 1}
-      />
-      
-      <div className="flex-1 grid w-full md:grid-cols-2 overflow-hidden">
-        <div className={`flex flex-col w-full h-full max-w-[800px] mx-auto px-4 overflow-hidden ${fragment ? 'col-span-1' : 'col-span-2'}`}>
-          <div className="flex-1 overflow-y-auto min-h-0 pb-2">
-            <Chat
-              messages={messages}
-              isLoading={isLoading}
-              setCurrentPreview={setCurrentPreview}
-              onEditMessage={handleEditMessage}
+  const handleFullScreenToggle = useCallback(() => {
+    setUIState(prev => ({ ...prev, fullScreenMode: !prev.fullScreenMode }))
+  }, [])
+
+  const handleSoundToggle = useCallback(() => {
+    setUIState(prev => ({ ...prev, enableSoundEffects: !prev.enableSoundEffects }))
+  }, [])
+
+  // Render main content based on layout
+  const renderMainContent = useCallback(() => {
+    if (uiState.layout === 'conversational') {
+      return (
+        <ConversationalChatInterface
+          messages={appState.messages}
+          currentCode={appState.fragment ? JSON.stringify(appState.fragment) : ''}
+          sessionId={appState.currentAppId || 'session'}
+          isLoading={appState.isGenerating}
+          onSendMessage={handleConversationalModification}
+          onApplyModification={async (actionIds) => {
+            // Handle modification application
+            console.log('Applying modifications:', actionIds)
+          }}
+          onCodeChange={(code) => {
+            try {
+              const parsedCode = JSON.parse(code)
+              setAppState(prev => ({ ...prev, fragment: parsedCode }))
+            } catch (error) {
+              console.error('Invalid code format:', error)
+            }
+          }}
+          className="h-full"
+        />
+      )
+    }
+
+    if (uiState.layout === 'tabs') {
+      return (
+        <Tabs value={uiState.currentTab} onValueChange={handleTabChange} className="h-full flex flex-col">
+          <TabsList className="grid w-full grid-cols-5">
+            <TabsTrigger value="code">Code</TabsTrigger>
+            <TabsTrigger value="fragment">Preview</TabsTrigger>
+            <TabsTrigger value="chat">Chat</TabsTrigger>
+            <TabsTrigger value="versions">Versions</TabsTrigger>
+            <TabsTrigger value="changes">Changes</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="code" className="flex-1 overflow-hidden">
+            <UnifiedPreview
+              fragment={appState.fragment}
+              result={appState.result}
+              isLoading={appState.isGenerating}
+              isGenerating={appState.isGenerating}
+              isPreviewLoading={appState.isPreviewLoading}
+              isAutoSaving={appState.isAutoSaving}
+              streamingProgress={appState.streamingProgress}
+              onStreamingPause={handleStreamingPause}
+              onStreamingCancel={handleStreamingCancel}
+              currentAppId={appState.currentAppId}
+              appName={appState.appName}
+              template={appState.selectedTemplate}
+              messages={appState.messages}
+              selectedTab="code"
+              onSelectedTabChange={(tab) => handleTabChange(typeof tab === 'string' ? tab : 'code')}
+              onAppNameChange={(name) => setAppState(prev => ({ ...prev, appName: name }))}
+              showTabs={false}
+              fullScreenMode={uiState.fullScreenMode}
+              onFullScreenToggle={handleFullScreenToggle}
+              enableSoundEffects={uiState.enableSoundEffects}
+              onSoundToggle={handleSoundToggle}
             />
-          </div>
-          <div className="flex-shrink-0 bg-background">
-            <ChatInput
-              retry={retry}
-              isErrored={error !== undefined}
+          </TabsContent>
+          
+          <TabsContent value="fragment" className="flex-1 overflow-hidden">
+            <UnifiedPreview
+              fragment={appState.fragment}
+              result={appState.result}
+              isLoading={appState.isGenerating}
+              isGenerating={appState.isGenerating}
+              isPreviewLoading={appState.isPreviewLoading}
+              isAutoSaving={appState.isAutoSaving}
+              streamingProgress={appState.streamingProgress}
+              onStreamingPause={handleStreamingPause}
+              onStreamingCancel={handleStreamingCancel}
+              currentAppId={appState.currentAppId}
+              appName={appState.appName}
+              template={appState.selectedTemplate}
+              messages={appState.messages}
+              selectedTab="fragment"
+              onSelectedTabChange={(tab) => handleTabChange(typeof tab === 'string' ? tab : 'fragment')}
+              onAppNameChange={(name) => setAppState(prev => ({ ...prev, appName: name }))}
+              showTabs={false}
+              fullScreenMode={uiState.fullScreenMode}
+              onFullScreenToggle={handleFullScreenToggle}
+              enableSoundEffects={uiState.enableSoundEffects}
+              onSoundToggle={handleSoundToggle}
+            />
+          </TabsContent>
+          
+          <TabsContent value="chat" className="flex-1 overflow-hidden flex flex-col">
+            <div className="flex-1 overflow-auto">
+              <Chat
+                messages={appState.messages}
+                isLoading={appState.isGenerating}
+                streamingProgress={appState.streamingProgress}
+                setCurrentPreview={({ fragment, result }) => {
+                  setAppState(prev => ({
+                    ...prev,
+                    fragment,
+                    result
+                  }))
+                }}
+                onEditMessage={(index, newContent) => {
+                  const updatedMessages = [...appState.messages]
+                  if (updatedMessages[index]?.content[0]?.type === 'text') {
+                    updatedMessages[index].content[0] = { type: 'text', text: newContent }
+                    setAppState(prev => ({ ...prev, messages: updatedMessages }))
+                  }
+                }}
+              />
+            </div>
+            <div className="border-t p-4">
+                          <ChatInput
+              retry={() => {
+                // Retry the last user message
+                const lastUserMessage = appState.messages.filter(m => m.role === 'user').pop()
+                if (lastUserMessage) {
+                  const userText = lastUserMessage.content.find(c => c.type === 'text')?.text || ''
+                  setInput(userText)
+                  setAppState(prev => ({ ...prev, isGenerating: false, streamingProgress: undefined }))
+                }
+              }}
+              isErrored={Boolean(error)}
               errorMessage={error?.message || ''}
-              isLoading={isLoading}
+              isLoading={appState.isGenerating}
               isRateLimited={false}
-              stop={stop}
-              input={chatInput}
-              handleInputChange={(e) => setChatInput(e.target.value)}
+              stop={handleStreamingCancel}
+              input={input}
+              handleInputChange={handleInputChange}
               handleSubmit={handleSubmit}
-              isMultiModal={Boolean(currentModel?.multiModal)}
+              isMultiModal={currentModel?.multiModal || false}
               files={files}
               handleFileChange={setFiles}
+              onDiffUpdate={() => setUIState(prev => ({ ...prev, isDiffDialogOpen: true }))}
             >
-              <ChatPicker
-                templates={templates}
-                selectedTemplate={selectedTemplate}
-                onSelectedTemplateChange={setSelectedTemplate}
-                models={filteredModels}
-                languageModel={languageModel}
-                onLanguageModelChange={setLanguageModel}
+                <ChatPicker
+                  templates={templates}
+                  selectedTemplate={appState.selectedTemplate}
+                  onSelectedTemplateChange={(template) => 
+                    setAppState(prev => ({ ...prev, selectedTemplate: template }))
+                  }
+                  models={filteredModels}
+                  languageModel={languageModel}
+                  onLanguageModelChange={setLanguageModel}
+                />
+              </ChatInput>
+            </div>
+          </TabsContent>
+          
+          <TabsContent value="versions" className="flex-1 overflow-hidden">
+            {systemState.versionSystem && (
+              <VersionManager
+                appId={appState.currentAppId || 'session'}
+                currentCode={appState.fragment}
+                onVersionSelect={async (version) => {
+                  setAppState(prev => ({
+                    ...prev,
+                    fragment: version.code,
+                    isPreviewLoading: true
+                  }))
+                  
+                  // Get sandbox for the version
+                  const result = await getSandbox(
+                    appState.currentAppId || 'session',
+                    version.code,
+                    appState.currentAppId || undefined
+                  )
+                  
+                  if (result) {
+                    setAppState(prev => ({
+                      ...prev,
+                      result,
+                      isPreviewLoading: false
+                    }))
+                  }
+                }}
+                onVersionCreate={(version) => {
+                  setSystemState(prev => ({
+                    ...prev,
+                    versions: [...prev.versions, version]
+                  }))
+                }}
+                className="h-full"
               />
-            </ChatInput>
+            )}
+          </TabsContent>
+          
+          <TabsContent value="changes" className="flex-1 overflow-hidden">
+            {systemState.changeManager && (
+              <div className="p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold">Change Management</h3>
+                  <Badge variant="outline">
+                    {systemState.changes.length} changes
+                  </Badge>
+                </div>
+                
+                <div className="space-y-2">
+                  {systemState.changes.map((change) => (
+                    <Card key={change.id}>
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h4 className="font-medium">{change.title}</h4>
+                            <p className="text-sm text-muted-foreground">
+                              {change.description}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={
+                              change.status === 'approved' ? 'default' :
+                              change.status === 'rejected' ? 'destructive' :
+                              'secondary'
+                            }>
+                              {change.status}
+                            </Badge>
+                            <Badge variant="outline">
+                              {change.priority}
+                            </Badge>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
+      )
+    }
+
+    // Dual panel layout
+    const leftPanel = (
+      <div className="h-full flex flex-col">
+        <div className="flex-1 overflow-auto">
+          <Chat
+            messages={appState.messages}
+            isLoading={appState.isGenerating}
+            streamingProgress={appState.streamingProgress}
+            setCurrentPreview={({ fragment, result }) => {
+              setAppState(prev => ({
+                ...prev,
+                fragment,
+                result
+              }))
+            }}
+            onEditMessage={(index, newContent) => {
+              const updatedMessages = [...appState.messages]
+              if (updatedMessages[index]?.content[0]?.type === 'text') {
+                updatedMessages[index].content[0] = { type: 'text', text: newContent }
+                setAppState(prev => ({ ...prev, messages: updatedMessages }))
+              }
+            }}
+          />
+        </div>
+        <div className="border-t p-4">
+                      <ChatInput
+              retry={() => {
+                // Retry the last user message
+                const lastUserMessage = appState.messages.filter(m => m.role === 'user').pop()
+                if (lastUserMessage) {
+                  const userText = lastUserMessage.content.find(c => c.type === 'text')?.text || ''
+                  setInput(userText)
+                  setAppState(prev => ({ ...prev, isGenerating: false, streamingProgress: undefined }))
+                }
+              }}
+              isErrored={Boolean(error)}
+              errorMessage={error?.message || ''}
+              isLoading={appState.isGenerating}
+              isRateLimited={false}
+              stop={handleStreamingCancel}
+              input={input}
+              handleInputChange={handleInputChange}
+              handleSubmit={handleSubmit}
+              isMultiModal={currentModel?.multiModal || false}
+              files={files}
+              handleFileChange={setFiles}
+              onDiffUpdate={() => setUIState(prev => ({ ...prev, isDiffDialogOpen: true }))}
+            >
+            <ChatPicker
+              templates={templates}
+              selectedTemplate={appState.selectedTemplate}
+              onSelectedTemplateChange={(template) => 
+                setAppState(prev => ({ ...prev, selectedTemplate: template }))
+              }
+              models={filteredModels}
+              languageModel={languageModel}
+              onLanguageModelChange={setLanguageModel}
+            />
+          </ChatInput>
+        </div>
+      </div>
+    )
+
+    const rightPanel = (
+              <UnifiedPreview
+          fragment={appState.fragment}
+          result={appState.result}
+          isLoading={appState.isGenerating}
+          isGenerating={appState.isGenerating}
+          isPreviewLoading={appState.isPreviewLoading}
+          isAutoSaving={appState.isAutoSaving}
+          streamingProgress={appState.streamingProgress}
+          onStreamingPause={handleStreamingPause}
+          onStreamingCancel={handleStreamingCancel}
+          currentAppId={appState.currentAppId}
+          appName={appState.appName}
+          template={appState.selectedTemplate}
+          messages={appState.messages}
+          selectedTab={uiState.currentTab === 'code' || uiState.currentTab === 'fragment' ? uiState.currentTab : 'fragment'}
+          onSelectedTabChange={(tab) => handleTabChange(typeof tab === 'string' ? tab : uiState.currentTab)}
+          onAppNameChange={(name) => setAppState(prev => ({ ...prev, appName: name }))}
+          showTabs={true}
+          fullScreenMode={uiState.fullScreenMode}
+          onFullScreenToggle={handleFullScreenToggle}
+          enableSoundEffects={uiState.enableSoundEffects}
+          onSoundToggle={handleSoundToggle}
+        />
+    )
+
+    return (
+      <DualPanelLayout
+        leftPanel={leftPanel}
+        rightPanel={rightPanel}
+        leftPanelTitle="Chat"
+        rightPanelTitle="Preview"
+        leftPanelIcon={<MessageSquare className="h-4 w-4" />}
+        rightPanelIcon={<Monitor className="h-4 w-4" />}
+        leftPanelCollapsed={uiState.leftPanelCollapsed}
+        rightPanelCollapsed={uiState.rightPanelCollapsed}
+        onLeftPanelToggle={(collapsed) => handlePanelToggle('left', collapsed)}
+        onRightPanelToggle={(collapsed) => handlePanelToggle('right', collapsed)}
+        showPanelControls={true}
+        isMobile={isMobile}
+        className="h-full"
+      />
+    )
+  }, [
+    uiState.layout,
+    uiState.currentTab,
+    uiState.leftPanelCollapsed,
+    uiState.rightPanelCollapsed,
+    uiState.fullScreenMode,
+    uiState.enableSoundEffects,
+    appState,
+    systemState,
+    languageModel,
+    currentModel,
+    templates,
+    filteredModels,
+    input,
+    files,
+    error,
+    handleInputChange,
+    handleSubmit,
+    handleStreamingCancel,
+    handleStreamingPause,
+    handleConversationalModification,
+    handleTabChange,
+    handlePanelToggle,
+    handleFullScreenToggle,
+    handleSoundToggle,
+    getSandbox,
+    isMobile,
+    setFiles
+  ])
+
+  // Render layout controls
+  const renderLayoutControls = useCallback(() => (
+    <div className="flex items-center gap-2 border-l pl-4">
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={uiState.layout === 'tabs' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => handleLayoutChange('tabs')}
+              className="h-8"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Tab Layout</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={uiState.layout === 'dual-panel' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => handleLayoutChange('dual-panel')}
+              className="h-8"
+            >
+              <Columns2 className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Dual Panel</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={uiState.layout === 'conversational' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => handleLayoutChange('conversational')}
+              className="h-8"
+            >
+              <MessageSquare className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Conversational</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
+  ), [uiState.layout, handleLayoutChange])
+
+  // Main render
+  return (
+    <div className="flex flex-col h-screen bg-background">
+      {/* Navigation */}
+      <NavBar
+        session={null} // TODO: Implement auth session
+        showLogin={() => {}} // TODO: Implement login
+        signOut={() => {}} // TODO: Implement sign out
+        onClear={() => {
+          setAppState(prev => ({ ...prev, messages: [] }))
+        }}
+        canClear={appState.messages.length > 0}
+        onSocialClick={(target) => {
+          const urls = {
+            github: 'https://github.com/your-repo',
+            x: 'https://x.com/your-handle',
+            discord: 'https://discord.gg/your-invite'
+          }
+          window.open(urls[target], '_blank')
+        }}
+        onUndo={() => {
+          // TODO: Implement undo functionality
+        }}
+        canUndo={false} // TODO: Implement undo state
+        onNewChat={() => {
+          setAppState(prev => ({
+            ...prev,
+            messages: [],
+            fragment: undefined,
+            result: undefined,
+            currentAppId: null,
+            appName: ''
+          }))
+        }}
+        onRedo={() => {
+          // TODO: Implement redo functionality
+        }}
+        canRedo={false} // TODO: Implement redo state
+      />
+
+      {/* Main content */}
+      <div className="flex-1 overflow-hidden">
+        {renderMainContent()}
+      </div>
+
+      {/* Dialogs */}
+      <DiffPreviewDialog
+        isOpen={uiState.isDiffDialogOpen}
+        onOpenChange={(open) => setUIState(prev => ({ ...prev, isDiffDialogOpen: open }))}
+        appId={appState.currentAppId || 'session'}
+        currentCode={appState.fragment}
+        userPrompt=""
+        onApply={(result) => {
+          // Handle DiffUpdateResult object
+          console.log('Diff update result:', result)
+          // TODO: Apply the diff result to the code
+        }}
+        onCancel={() => setUIState(prev => ({ ...prev, isDiffDialogOpen: false }))}
+        className="max-w-4xl"
+      />
+
+      {/* Version Timeline - TODO: Implement with proper dialog wrapper */}
+      {/* 
+      {systemState.versionSystem && (
+        <Dialog 
+          open={uiState.isVersionTimelineOpen} 
+          onOpenChange={(open) => setUIState(prev => ({ ...prev, isVersionTimelineOpen: open }))}
+        >
+          <DialogContent className="max-w-4xl">
+            <DialogHeader>
+              <DialogTitle>Version Timeline</DialogTitle>
+            </DialogHeader>
+            <VersionTimeline
+              versionTree={systemState.versionSystem.getVersionTree()}
+              selectedVersion={systemState.versions[systemState.versions.length - 1]?.id}
+              onVersionSelect={async (versionId) => {
+                const version = systemState.versionSystem?.getVersion(versionId)
+                if (version) {
+                  setAppState(prev => ({
+                    ...prev,
+                    fragment: version.code,
+                    isPreviewLoading: true
+                  }))
+                  
+                  const result = await getSandbox(
+                    appState.currentAppId || 'session',
+                    version.code,
+                    appState.currentAppId || undefined
+                  )
+                  
+                  if (result) {
+                    setAppState(prev => ({
+                      ...prev,
+                      result,
+                      isPreviewLoading: false
+                    }))
+                  }
+                }
+              }}
+              className="max-w-3xl"
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+      */}
+    </div>
+  )
+})
+
+// Main export with error boundary
+export default function MainPage() {
+  return (
+    <ErrorBoundary
+      FallbackComponent={ErrorFallback}
+      onError={(error, errorInfo) => {
+        console.error('App error:', error, errorInfo)
+      }}
+    >
+      <Suspense fallback={
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center space-y-4">
+            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+            <p className="text-muted-foreground">Loading Fragg...</p>
           </div>
         </div>
-        {fragment ? (
-          <EnhancedPreview
-            fragment={fragment}
-            result={result}
-            isLoading={isPreviewLoading}
-            isGenerating={isLoading}
-            currentAppId={currentAppId}
-            appName={appName}
-            template={selectedTemplate}
-            messages={messages}
-            onAppNameChange={setAppName}
-            onSave={handleSaveToLibrary}
-            onSandboxRecreate={async (fragment) => {
-              const response = await fetch('/api/sandbox', {
-                method: 'POST',
-                body: JSON.stringify({
-                  fragment,
-                  sessionId: currentAppId,
-                }),
-              })
-              return await response.json()
-            }}
-            fragmentVersions={fragmentVersions}
-            currentVersionIndex={currentVersionIndex}
-            onVersionChange={navigateToVersion}
-          />
-        ) : (
-          <Preview
-            teamID={undefined}
-            accessToken={undefined}
-            selectedTab={currentTab}
-            onSelectedTabChange={setCurrentTab}
-            isChatLoading={isLoading}
-            isPreviewLoading={isPreviewLoading}
-            fragment={fragment}
-            result={result as ExecutionResult}
-            onClose={() => setFragment(undefined)}
-            appName={appName}
-            onAppNameChange={setAppName}
-            onSave={handleSaveToLibrary}
-            canSave={messages.length > 0}
-            fragmentVersions={fragmentVersions}
-            currentVersionIndex={currentVersionIndex}
-            onPreviousVersion={goToPreviousVersion}
-            onNextVersion={goToNextVersion}
-            isAutoSaving={isAutoSaving}
-          />
-        )}
-      </div>
-    </main>
-  )
-}
-
-export default function SimplifiedHome() {
-  return (
-    <Suspense fallback={<div className="flex items-center justify-center h-screen">Loading...</div>}>
-      <SimplifiedHomeContent />
-    </Suspense>
+      }>
+        <EnhancedApp />
+      </Suspense>
+    </ErrorBoundary>
   )
 } 

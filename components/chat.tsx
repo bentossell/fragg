@@ -13,6 +13,7 @@ export function Chat({
   isLoading,
   setCurrentPreview,
   onEditMessage,
+  streamingProgress,
 }: {
   messages: Message[]
   isLoading: boolean
@@ -21,6 +22,13 @@ export function Chat({
     result: ExecutionResult | undefined
   }) => void
   onEditMessage?: (index: number, newContent: string) => void
+  streamingProgress?: {
+    stage: string
+    progress: number
+    message: string
+    canPause?: boolean
+    isPaused?: boolean
+  }
 }) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [editingContent, setEditingContent] = useState('')
@@ -207,24 +215,52 @@ export function Chat({
         )
       })}
       
-      {isLoading && generationProgress && (
+      {isLoading && (streamingProgress || generationProgress) && (
         <div className="flex flex-col gap-3 px-4 py-3 bg-accent/50 dark:bg-white/5 rounded-xl animate-in fade-in duration-300">
           <div className="flex items-center gap-2">
-            {generationProgress.stage === 'instant' ? (
-              <Zap className="w-4 h-4 text-green-500" />
-            ) : generationProgress.stage === 'agents' ? (
-              <Code className="w-4 h-4 text-blue-500" />
-            ) : (
-              <Clock className="w-4 h-4 text-orange-500" />
-            )}
-            <span className="text-sm font-medium">{generationProgress.message}</span>
+            {streamingProgress ? (
+              // Use streamingProgress if available
+              <>
+                {streamingProgress.stage === 'complete' ? (
+                  <Zap className="w-4 h-4 text-green-500" />
+                ) : streamingProgress.stage === 'coding' ? (
+                  <Code className="w-4 h-4 text-blue-500" />
+                ) : (
+                  <Clock className="w-4 h-4 text-orange-500" />
+                )}
+                <span className="text-sm font-medium">{streamingProgress.message}</span>
+                {streamingProgress.isPaused && (
+                  <span className="text-xs text-yellow-500 ml-2">(Paused)</span>
+                )}
+              </>
+            ) : generationProgress ? (
+              // Fallback to generationProgress
+              <>
+                {generationProgress.stage === 'instant' ? (
+                  <Zap className="w-4 h-4 text-green-500" />
+                ) : generationProgress.stage === 'agents' ? (
+                  <Code className="w-4 h-4 text-blue-500" />
+                ) : (
+                  <Clock className="w-4 h-4 text-orange-500" />
+                )}
+                <span className="text-sm font-medium">{generationProgress.message}</span>
+              </>
+            ) : null}
           </div>
           
-          {generationProgress.progress < 100 && (
-            <Progress value={generationProgress.progress} className="h-2" />
-          )}
+          {/* Progress bar */}
+          {(() => {
+            const progress = streamingProgress?.progress !== undefined ? streamingProgress.progress : generationProgress?.progress
+            return progress !== undefined && progress < 100 && (
+              <Progress 
+                value={progress} 
+                className="h-2" 
+              />
+            )
+          })()}
           
-          {generationProgress.stage === 'agents' && generationProgress.total && (
+          {/* Agent progress indicators */}
+          {generationProgress?.stage === 'agents' && generationProgress.total && (
             <div className="flex gap-1">
               {Array.from({ length: generationProgress.total }).map((_, i) => (
                 <div
@@ -241,7 +277,7 @@ export function Chat({
         </div>
       )}
       
-      {isLoading && !generationProgress && (
+      {isLoading && !streamingProgress && !generationProgress && (
         <div className="flex items-center gap-1 text-sm text-muted-foreground animate-in fade-in duration-300">
           <LoaderIcon strokeWidth={2} className="animate-spin w-4 h-4" />
           <span className="flex items-center gap-1">
