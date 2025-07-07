@@ -32,9 +32,16 @@ export class SingleActiveSandboxManager {
    */
   async closeCurrent(): Promise<void> {
     if (this.currentSandbox) {
+      // Import here to avoid circular dependencies
+      const { sandboxReconnectionManager } = await import('./reconnect')
+      
       try {
         console.log(`Closing sandbox for session ${this.currentSessionId}`)
         await this.currentSandbox.kill()
+        
+        if (this.currentSessionId) {
+          sandboxReconnectionManager.clearSession(this.currentSessionId)
+        }
       } catch (error) {
         console.warn(`Error closing sandbox: ${error}`)
       } finally {

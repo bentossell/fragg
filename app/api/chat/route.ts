@@ -4,12 +4,10 @@ import { LLMModel, LLMModelConfig } from '@/lib/models'
 import { toPrompt } from '@/lib/prompt'
 import ratelimit from '@/lib/ratelimit'
 import { fragmentSchema as schema } from '@/lib/schema'
-import templates, { Templates } from '@/lib/templates'
+import templates, { Template, TemplateId } from '@/lib/templates'
 import { selectOptimalTemplate } from '@/lib/template-selector'
 import { streamObject, LanguageModel, CoreMessage } from 'ai'
 import { codeOrchestrator, StreamingUpdate } from '@/lib/ai-orchestrator'
-import { templateCache } from '@/lib/template-cache'
-import { sandboxPool } from '@/lib/sandbox-pool'
 
 export const maxDuration = 60
 
@@ -33,7 +31,7 @@ export async function POST(req: Request) {
     messages: CoreMessage[]
     userID: string | undefined
     teamID: string | undefined
-    template: Templates
+    template: Record<TemplateId, Template>
     model: LLMModel
     config: LLMModelConfig
     useOptimized?: boolean
@@ -78,70 +76,8 @@ export async function POST(req: Request) {
   // If optimized generation is enabled and we have a simple prompt, use the fast path
   if (useOptimized && typeof userPrompt === 'string' && userPrompt.trim()) {
     try {
-      const startTime = Date.now()
-      
-      // Check for instant template match first (sub-1-second response)
-      const suggestion = templateCache.suggestTemplate(userPrompt)
-      
-      if (suggestion.confidence > 0.8 && suggestion.quickStart) {
-        console.log(`⚡ Using instant template: ${suggestion.quickStart}`)
-        
-        const instant = templateCache.generateInstant(
-          suggestion.quickStart.includes('landing') ? 'landing' :
-          suggestion.quickStart.includes('dashboard') ? 'dashboard' :
-          suggestion.quickStart.includes('calculator') ? 'tool' : 'tool',
-          { title: extractTitle(userPrompt) }
-        )
-        
-        // Convert instant result to fragment schema format
-        const fragment = {
-          code: instant.code,
-          template: instant.template,
-          title: extractTitle(userPrompt),
-          commentary: `Generated using instant template in ${instant.executionTime}ms`,
-        }
-        
-        // Stream the response in the expected format
-        const encoder = new TextEncoder()
-        const stream = new ReadableStream({
-          start(controller) {
-            controller.enqueue(encoder.encode(`0:"${JSON.stringify(fragment).replace(/"/g, '\\"')}"\n`))
-            controller.close()
-          }
-        })
-        
-        return new Response(stream, {
-          headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
-            'X-Generation-Method': 'instant-template',
-            'X-Execution-Time': instant.executionTime.toString(),
-          }
-        })
-      }
-      
-      // Use full orchestrator for complex requests with streaming updates
       console.log('🎯 Using AI orchestrator for optimized generation')
-      
-      // Check if this is an iteration on existing code
-      let existingCode = ''
-      let existingTemplate = ''
-      
-      // Look for existing code in the conversation history
-      for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].role === 'assistant') {
-          const assistantMessage = messages[i]
-          // Check if the message has code content
-          if (assistantMessage.content && typeof assistantMessage.content === 'object') {
-            const codeContent = (assistantMessage.content as any).code
-            if (codeContent) {
-              existingCode = codeContent
-              existingTemplate = (assistantMessage.content as any).template || 'nextjs-developer'
-              break
-            }
-          }
-        }
-      }
-      
+
       // Create a transform stream to convert orchestrator updates to the expected format
       const { readable, writable } = new TransformStream()
       const writer = writable.getWriter()
@@ -201,7 +137,7 @@ export async function POST(req: Request) {
             writer.close()
             break
         }
-      }, existingCode).catch(error => {
+      }, '').catch(error => {
         currentFragment.commentary = `Error: ${error.message}`
         sendFragmentUpdate(currentFragment)
         writer.close()
@@ -242,12 +178,18 @@ export async function POST(req: Request) {
     // Ensure the selected template exists
     if (!templates[optimalTemplate]) {
       console.error(`Selected template ${optimalTemplate} not found, falling back to nextjs-developer`)
-      templateToUse = { 'nextjs-developer': templates['nextjs-developer'] } as Templates
+      templateToUse = { 'nextjs-developer': templates['nextjs-developer'] } as Record<TemplateId, Template>
     } else {
-      templateToUse = { [optimalTemplate]: templates[optimalTemplate] } as Templates
+      templateToUse = { [optimalTemplate]: templates[optimalTemplate] } as Record<TemplateId, Template>
     }
   }
   
+  // Final safety check for templateToUse
+  if (!templateToUse || typeof templateToUse !== 'object' || Object.keys(templateToUse).length === 0) {
+    console.error('templateToUse is invalid, using default nextjs-developer template')
+    templateToUse = { 'nextjs-developer': templates['nextjs-developer'] } as Record<TemplateId, Template>
+  }
+
   const { model: modelNameString, apiKey: modelApiKey, ...modelParams } = config
   const modelClient = getModelClient(modelToUse, config)
 

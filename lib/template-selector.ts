@@ -40,7 +40,7 @@ export function selectOptimalTemplate(userPrompt: string, triageResult?: TriageR
   
   // Prefer static for simple sites
   if ((staticScore > uiScore || wantsSimple) && !needsBackend) {
-    return 'static-html';
+    return 'nextjs-developer';
   }
   
   // Use Streamlit/Gradio for data-heavy apps
@@ -54,7 +54,7 @@ export function selectOptimalTemplate(userPrompt: string, triageResult?: TriageR
   }
   
   // When in doubt, default to static for simplicity
-  return 'static-html';
+  return 'nextjs-developer';
 }
 
 /**

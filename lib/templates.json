@@ -1,27 +1,48 @@
 {
   "code-interpreter-v1": {
+    "id": "code-interpreter-v1",
     "name": "Python data analyst",
+    "description": "Runs code as a Jupyter notebook cell. Strong data analysis angle. Can use complex visualisation to explain results.",
+    "icon": "python",
+    "start_cmd": "echo 'Code interpreter does not have a start command.'",
+    "tags": ["python", "jupyter", "numpy", "pandas", "matplotlib", "seaborn", "plotly"],
     "lib": ["python", "jupyter", "numpy", "pandas", "matplotlib", "seaborn", "plotly"],
     "file": "script.py",
     "instructions": "Runs code as a Jupyter notebook cell. Strong data analysis angle. Can use complex visualisation to explain results.",
     "port": null
   },
+
   "nextjs-developer": {
+    "id": "nextjs-developer",
     "name": "Next.js developer",
+    "description": "A Next.js 13+ app that reloads automatically. Using the pages router.",
+    "icon": "nextjs",
+    "start_cmd": "npm run dev",
+    "tags": ["nextjs", "react", "typescript", "tailwindcss", "shadcn"],
     "lib": ["nextjs@14.2.5", "typescript", "@types/node", "@types/react", "@types/react-dom", "postcss", "tailwindcss", "shadcn"],
     "file": "pages/index.tsx",
     "instructions": "A Next.js 13+ app that reloads automatically. Using the pages router.",
     "port": 3000
   },
   "vue-developer": {
+    "id": "vue-developer",
     "name": "Vue.js developer",
+    "description": "A Vue.js 3+ app that reloads automatically. Only when asked specifically for a Vue app.",
+    "icon": "vue",
+    "start_cmd": "npm run dev",
+    "tags": ["vue", "nuxt", "tailwindcss"],
     "lib": ["vue@latest", "nuxt@3.13.0", "tailwindcss"],
     "file": "app.vue",
     "instructions": "A Vue.js 3+ app that reloads automatically. Only when asked specifically for a Vue app.",
     "port": 3000
   },
   "streamlit-developer": {
+    "id": "streamlit-developer",
     "name": "Streamlit developer",
+    "description": "A streamlit app that reloads automatically.",
+    "icon": "streamlit",
+    "start_cmd": "streamlit run app.py",
+    "tags": ["streamlit", "python", "pandas", "numpy"],
     "lib": [
       "streamlit",
       "pandas",
@@ -36,7 +57,12 @@
     "port": 8501
   },
   "gradio-developer": {
+    "id": "gradio-developer",
     "name": "Gradio developer",
+    "description": "A gradio app. Gradio Blocks/Interface should be called demo.",
+    "icon": "gradio",
+    "start_cmd": "python app.py",
+    "tags": ["gradio", "python", "machine-learning"],
     "lib": [
       "gradio",
       "pandas",

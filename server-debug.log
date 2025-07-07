@@ -1,0 +1,12 @@
+
+> e2b-fragments@0.1.0 dev
+> next dev --turbo
+
+   ▲ Next.js 15.3.5 (Turbopack)
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.10.112:3000
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Compiled middleware in 122ms
+ ✓ Ready in 1100ms

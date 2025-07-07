@@ -1,9 +1,22 @@
-# Static HTML Template for instant web app generation
-name = "static-html"
-start_cmd = "python -m http.server 3000"
+# This is a config for E2B sandbox template.
+# You can use template_id or template_name (static-html) to create a sandbox:
 
-[build]
+# Python SDK
+# from e2b import Sandbox, AsyncSandbox
+# sandbox = Sandbox("static-html") # Sync sandbox
+# sandbox = await AsyncSandbox.create("static-html") # Async sandbox
+
+# JS SDK
+# import { Sandbox } from 'e2b'
+# const sandbox = await Sandbox.create('static-html')
+
+template_id = "static-html"
 dockerfile = "e2b.Dockerfile"
+template_name = "static-html"
+start_cmd = "python -m http.server 3000"
+cpu_count = 2
+memory_mb = 2_048
+team_id = "460355b3-4f64-48f9-9a16-4442817f79f5"
 
 # Pre-install common tools and dependencies
 [environment]

@@ -1,13 +1,20 @@
-import templates from './templates.json'
+import templatesData from './templates.json'
+
+export type TemplateId = keyof typeof templatesData
+
+export interface Template {
+  id: string
+  name: string
+  description: string
+  icon: string
+  start_cmd: string
+  tags: string[]
+}
+
+export const templates = templatesData as Record<TemplateId, Template>
+
+export function getTemplate(templateName: TemplateId): Template | undefined {
+  return templates[templateName]
+}
 
 export default templates
-export type Templates = typeof templates
-export type TemplateId = keyof typeof templates
-export type TemplateConfig = typeof templates[TemplateId]
-
-export function templatesToPrompt(templates: Templates) {
-  return `${Object.entries(templates).map(([id, t], index) => {
-    const dependencies = t.lib ? t.lib.join(', ') : 'none'
-    return `${index + 1}. ${id}: "${t.instructions}". File: ${t.file || 'none'}. Dependencies installed: ${dependencies}. Port: ${t.port || 'none'}.`
-  }).join('\n')}`
-}

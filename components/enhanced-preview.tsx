@@ -165,6 +165,23 @@ export function EnhancedPreview({
     }
   }
   
+  useEffect(() => {
+    return () => {
+      // Cleanup when component unmounts
+      if (result?.sbxId && fragment?.template) {
+        // Release sandbox back to pool
+        fetch('/api/sandbox', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            sandboxId: result.sbxId, 
+            template: fragment.template 
+          })
+        }).catch(err => console.error('Failed to release sandbox:', err))
+      }
+    }
+  }, [result?.sbxId, fragment?.template])
+  
   // Show loading state
   if (isGenerating || isLoading) {
     return (

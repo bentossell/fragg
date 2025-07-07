@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { GitBranch, Clock, RotateCcw, ChevronRight } from 'lucide-react'
 import { AppVersionManager, AppVersion } from '@/lib/storage/app-version-manager'
 import { Button } from '@/components/ui/button'
@@ -33,13 +33,7 @@ export function VersionHistory({ appId, userId, onRevert }: VersionHistoryProps)
   
   const versionManager = new AppVersionManager(appId, userId)
   
-  useEffect(() => {
-    if (isOpen) {
-      loadVersionHistory()
-    }
-  }, [isOpen])
-  
-  const loadVersionHistory = async () => {
+  const loadVersionHistory = useCallback(async () => {
     setIsLoading(true)
     try {
       const history = await versionManager.getVersionHistory()
@@ -53,7 +47,13 @@ export function VersionHistory({ appId, userId, onRevert }: VersionHistoryProps)
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [versionManager, toast])
+  
+  useEffect(() => {
+    if (isOpen) {
+      loadVersionHistory()
+    }
+  }, [isOpen, loadVersionHistory])
   
   const handleRevert = async (version: AppVersion) => {
     try {

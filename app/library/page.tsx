@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { AppLibrary, SavedApp } from '@/lib/storage/app-library'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -17,15 +17,17 @@ import { toast } from '@/components/ui/use-toast'
 
 export default function LibraryPage() {
   const [apps, setApps] = useState<SavedApp[]>([])
-  const appLibrary = new AppLibrary()
+  
+  // Memoize AppLibrary instance to prevent recreation on every render
+  const appLibrary = useMemo(() => new AppLibrary(), [])
+  
+  const loadApps = useCallback(() => {
+    setApps(appLibrary.getApps())
+  }, [appLibrary])
   
   useEffect(() => {
     loadApps()
-  }, [])
-  
-  const loadApps = () => {
-    setApps(appLibrary.getApps())
-  }
+  }, [loadApps])
   
   const handleDelete = (appId: string, appName: string) => {
     if (confirm(`Are you sure you want to delete "${appName}"? This action cannot be undone.`)) {

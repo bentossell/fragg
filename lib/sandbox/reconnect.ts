@@ -1,95 +1,81 @@
 import { Sandbox } from '@e2b/code-interpreter'
 import { singleActiveSandboxManager } from './single-active-manager'
+import { getTemplate, TemplateId } from '../templates'
 
 export class SandboxReconnectionManager {
+  private sessionToSandbox = new Map<string, string>()
   private reconnectAttempts = new Map<string, number>()
   private maxAttempts = 3
-  
+
   async getOrCreateSandbox(
     sessionId: string,
-    sandboxId: string | undefined,
-    template: string
-  ): Promise<{ sandbox: Sandbox, isNew: boolean }> {
-    // First check if this session already has the active sandbox
+    template: TemplateId,
+  ): Promise<{ sandbox: Sandbox; isNew: boolean }> {
+    // 1. Check if this session already has the active sandbox
     const activeSandbox = singleActiveSandboxManager.getCurrentSandbox(sessionId)
     if (activeSandbox) {
-      console.log('Using already active sandbox for session:', sessionId)
+      console.log(`[reconnect] Using active sandbox ${activeSandbox.sandboxId} for session ${sessionId}`)
       return { sandbox: activeSandbox, isNew: false }
     }
-    
-    // Try to reconnect to existing sandbox
+
+    // 2. Check if we have a sandbox ID for this session
+    const sandboxId = this.sessionToSandbox.get(sessionId)
     if (sandboxId) {
       const attempts = this.reconnectAttempts.get(sandboxId) || 0
       if (attempts < this.maxAttempts) {
         try {
+          console.log(`[reconnect] Attempting to reconnect to sandbox ${sandboxId} for session ${sessionId}`)
           const sandbox = await Sandbox.connect(sandboxId)
-          console.log('Reconnected to existing sandbox:', sandboxId)
           
-          // Verify sandbox is still alive
-          await sandbox.files.list('/')
-          
-          console.log(`Successfully reconnected to sandbox: ${sandboxId}`)
           this.reconnectAttempts.delete(sandboxId)
-          
-          // Register as active sandbox
           await singleActiveSandboxManager.setActiveSandbox(sessionId, sandbox)
           
+          console.log(`[reconnect] Reconnected to ${sandboxId}`)
           return { sandbox, isNew: false }
         } catch (error) {
-          console.log(`Failed to reconnect (attempt ${attempts + 1}):`, error)
-          this.reconnectAttempts.set(sandboxId, attempts + 1)
-          
-          // Check if error is 401 Unauthorized or 502 Bad Gateway - don't retry these
-          if (error instanceof Error) {
-            const errorMessage = error.message.toLowerCase()
-            if (errorMessage.includes('401') || 
-                errorMessage.includes('unauthorized') ||
-                errorMessage.includes('502') ||
-                errorMessage.includes('bad gateway') ||
-                errorMessage.includes('does not exist')) {
-              console.log('Sandbox is expired or invalid, skipping retries')
-              this.reconnectAttempts.delete(sandboxId)
-              // Continue to create new sandbox below
-            } else if (attempts + 1 >= this.maxAttempts) {
-              console.log('Max reconnect attempts reached')
-              this.reconnectAttempts.delete(sandboxId)
-            } else {
-              // Re-throw for other errors if we haven't hit max attempts
-              throw error
-            }
-          }
+          console.error(`[reconnect] Failed to reconnect to sandbox ${sandboxId}:`, error)
+          this.reconnectAttempts.set(sandboxId, (this.reconnectAttempts.get(sandboxId) || 0) + 1)
         }
+      } else {
+        console.log(`[reconnect] Max reconnection attempts reached for ${sandboxId}. Creating a new one.`)
+        this.sessionToSandbox.delete(sessionId)
+        this.reconnectAttempts.delete(sandboxId)
       }
     }
-    
-    // Create new sandbox
-    console.log(`Creating new sandbox for session: ${sessionId}`)
-    const sandbox = await Sandbox.create(template, {
+
+    // 3. Create a new sandbox
+    console.log(`[reconnect] Creating new sandbox for session ${sessionId} with template ${template}`)
+    const templateInfo = getTemplate(template)
+    if (!templateInfo) {
+      throw new Error(`Template ${template} not found.`)
+    }
+
+    const sandbox = await Sandbox.create(templateInfo.id, {
       metadata: {
-        sessionId
-      }
+        sessionId,
+        template,
+        createdAt: new Date().toISOString(),
+      },
+      timeoutMs: 10 * 60 * 1000, // 10 minutes
     })
-    
-    console.log(`Created new sandbox: ${sandbox.sandboxId}`)
-    
-    // Register as active sandbox
+
+    // 4. Store the new sandbox ID and set it as active
+    this.sessionToSandbox.set(sessionId, sandbox.sandboxId)
     await singleActiveSandboxManager.setActiveSandbox(sessionId, sandbox)
-    
+
+    console.log(`[reconnect] Created new sandbox ${sandbox.sandboxId} for session ${sessionId}`)
     return { sandbox, isNew: true }
   }
-  
-  async closeSandbox(sandbox: Sandbox) {
-    try {
-      await sandbox.kill()
-      console.log(`Closed sandbox: ${sandbox.sandboxId}`)
-    } catch (error) {
-      console.warn(`Error closing sandbox ${sandbox.sandboxId}:`, error)
+
+  public clearSession(sessionId: string) {
+    const sandboxId = this.sessionToSandbox.get(sessionId)
+    if (sandboxId) {
+      this.sessionToSandbox.delete(sessionId)
+      this.reconnectAttempts.delete(sandboxId)
+      console.log(`[reconnect] Cleared session ${sessionId} and sandbox ${sandboxId}`)
     }
-  }
-  
-  cleanup() {
-    this.reconnectAttempts.clear()
   }
 }
 
+// Export singleton instance
 export const sandboxReconnectionManager = new SandboxReconnectionManager()

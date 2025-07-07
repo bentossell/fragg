@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { LLMModel, LLMModelConfig } from '@/lib/models'
-import { TemplateId, Templates } from '@/lib/templates'
+import { TemplateId, Template } from '@/lib/templates'
 import 'core-js/features/object/group-by.js'
 import { Sparkles, Search, Brain } from 'lucide-react'
 import Image from 'next/image'
@@ -23,7 +23,7 @@ export function ChatPicker({
   languageModel,
   onLanguageModelChange,
 }: {
-  templates: Templates
+  templates: Record<TemplateId, Template>
   selectedTemplate: 'auto' | TemplateId
   onSelectedTemplateChange: (template: 'auto' | TemplateId) => void
   models: LLMModel[]

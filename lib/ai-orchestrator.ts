@@ -450,7 +450,7 @@ export class CodeOrchestrator {
     if (this.detectFramework(code) === 'nextjs') return 'nextjs-developer'
     if (this.detectFramework(code) === 'streamlit') return 'streamlit-developer'
     if (this.detectFramework(code) === 'gradio') return 'gradio-developer'
-    return 'static-html'
+    return 'nextjs-developer'
   }
   
   private extractDependenciesFromCode(code: string): string[] {
@@ -652,7 +652,7 @@ export class CodeOrchestrator {
     
     return {
       code,
-      template: 'static-html',
+              template: 'nextjs-developer',
       dependencies: [],
       executionTime: Date.now() - startTime,
       agentResults: [{

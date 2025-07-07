@@ -1,281 +1,171 @@
+import { NextRequest, NextResponse } from 'next/server'
 import { FragmentSchema } from '@/lib/schema'
-import { ExecutionResultInterpreter, ExecutionResultWeb } from '@/lib/types'
+import { ExecutionResultWeb, ExecutionResultInterpreter } from '@/lib/types'
 import { Sandbox } from '@e2b/code-interpreter'
 import { injectAI } from '@/lib/inject-ai'
+import { sandboxReconnectionManager } from '@/lib/sandbox/reconnect'
 import { singleActiveSandboxManager } from '@/lib/sandbox/single-active-manager'
-
-const sandboxTimeout = 10 * 60 * 1000 // 10 minute in ms
+import { getTemplate, TemplateId } from '@/lib/templates'
 
 export const maxDuration = 60
 
-// Helper function to detect if a file is binary based on its extension
-function isBinaryFile(filePath: string): boolean {
-  const binaryExtensions = [
-    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.ico', '.svg',
-    '.pdf', '.zip', '.tar', '.gz', '.mp3', '.mp4', '.wav', '.avi',
-    '.mov', '.wmv', '.flv', '.mkv', '.woff', '.woff2', '.ttf', '.eot',
-    '.otf', '.bin', '.exe', '.dll', '.so', '.dylib'
-  ]
-  
-  const ext = filePath.toLowerCase().match(/\.[^.]*$/)?.[0] || ''
-  return binaryExtensions.includes(ext)
-}
+async function startAppAndGetURL(
+  sbx: Sandbox,
+  fragment: FragmentSchema,
+  isReused: boolean,
+): Promise<string> {
+  const port = fragment.port || 3000 // Default to 3000, adjust if needed
+  let url = ''
 
-// Helper function to process file content for binary files
-function processBinaryContent(content: string, filePath: string): Buffer {
-  // Check if content is base64 encoded
-  if (content.startsWith('data:')) {
-    // Extract base64 data from data URL
-    const base64Match = content.match(/^data:[^;]+;base64,(.+)$/)
-    if (base64Match) {
-      return Buffer.from(base64Match[1], 'base64')
+  if (isReused) {
+    try {
+      const host = await sbx.getHost(port)
+      if (host) {
+        url = `https://${host}`
+        console.log(`Reused sandbox already has app at: ${url}`)
+        // Quick check to see if it's alive
+        const res = await fetch(url)
+        if (res.ok) return url
+      }
+    } catch (e) {
+      console.log('Could not get host for reused sandbox, will try starting app again.')
     }
   }
-  
-  // Try to decode as base64 directly
-  try {
-    // Check if it's valid base64
-    const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/
-    if (base64Regex.test(content.replace(/\s/g, ''))) {
-      return Buffer.from(content, 'base64')
-    }
-  } catch (e) {
-    // Not base64, treat as raw string
-  }
-  
-  // Default: convert string to buffer
-  return Buffer.from(content)
-}
 
-// Helper function to convert Buffer to ArrayBuffer
-function bufferToArrayBuffer(buffer: Buffer): ArrayBuffer {
-  const arrayBuffer = new ArrayBuffer(buffer.length)
-  const view = new Uint8Array(arrayBuffer)
-  for (let i = 0; i < buffer.length; i++) {
-    view[i] = buffer[i]
+  const templateInfo = getTemplate(fragment.template as TemplateId)
+  if (!templateInfo?.start_cmd) {
+    throw new Error(`No start command found for template ${fragment.template}`)
   }
-  return arrayBuffer
+
+  await sbx.commands.run(templateInfo.start_cmd, {
+    onStdout: (data) => console.log('[Sandbox STDOUT]', data),
+    onStderr: (data) => console.error('[Sandbox STDERR]', data),
+  })
+  console.log(`Started app with command: ${templateInfo.start_cmd}`)
+
+  // Wait for the app to start and get the URL
+  let retries = 0
+  const maxRetries = 15
+  while (retries < maxRetries) {
+    try {
+      await new Promise(resolve => setTimeout(resolve, 2000)) // Wait 2s
+      const host = await sbx.getHost(port)
+      if (host) {
+        url = `https://${host}`
+        console.log(`Checking ${url} for live status...`)
+        const res = await fetch(url)
+        if (res.ok || res.status < 500) {
+          console.log(`Site is live: ${url}`)
+          return url
+        }
+      }
+    } catch (error) {
+      console.log(`App not ready yet, retrying... (attempt ${retries + 1})`)
+    }
+    retries++
+  }
+
+  throw new Error('App failed to start after maximum retries')
 }
 
 export async function POST(req: Request) {
+  const { fragment, sessionId }: { fragment: FragmentSchema; sessionId?: string } =
+    await req.json()
+
+  console.log('POST /api/sandbox')
+  console.log('Template:', fragment.template)
+  console.log('SessionID:', sessionId)
+
+  // Ensure a session ID exists
+  const effectiveSessionId = sessionId || `anon-session-${Date.now()}`
+
   try {
-    const {
-      fragment,
-      userID,
-      teamID,
-      accessToken,
-      sessionId,
-    }: {
-      fragment: FragmentSchema
-      userID: string | undefined
-      teamID: string | undefined
-      accessToken: string | undefined
-      sessionId?: string
-    } = await req.json()
-    
-    console.log('=== Sandbox API Request ===')
-    console.log('fragment:', JSON.stringify(fragment, null, 2))
-    console.log('userID:', userID)
-    console.log('teamID:', teamID)
-    console.log('sessionId:', sessionId)
-    console.log('fragment.template:', fragment?.template)
-    
-    // Validate fragment
-    if (!fragment || !fragment.template) {
-      console.error('Invalid fragment:', fragment)
-      return new Response(
-        JSON.stringify({ 
-          error: 'Invalid fragment: missing template',
-          details: 'Fragment must include a template property'
-        }),
-        { status: 400 }
+    const { sandbox: sbx, isNew } =
+      await sandboxReconnectionManager.getOrCreateSandbox(
+        effectiveSessionId,
+        fragment.template as TemplateId,
       )
-    }
-    
-    // Create an interpreter or a sandbox
-    console.log('Creating sandbox with template:', fragment.template)
-    const sbx = await Sandbox.create(fragment.template, {
-      metadata: {
-        template: fragment.template,
-        userID: userID ?? '',
-        teamID: teamID ?? '',
-        sessionId: sessionId ?? '',
-      },
-      timeoutMs: sandboxTimeout,
-      ...(teamID && accessToken
-        ? {
-            headers: {
-              'X-Supabase-Team': teamID,
-              'X-Supabase-Token': accessToken,
-            },
-          }
-        : {}),
-    })
-    console.log('Sandbox created successfully:', sbx.sandboxId)
-    
-    // Register this sandbox as the active one if sessionId provided
-    if (sessionId) {
-      await singleActiveSandboxManager.setActiveSandbox(sessionId, sbx)
-    }
-    
-    // Install packages
-    if (fragment.has_additional_dependencies) {
+
+    console.log(
+      `${isNew ? '🆕 Created' : '♻️ Reusing'} sandbox ${sbx.sandboxId} for session ${effectiveSessionId}`,
+    )
+
+    // 1. Install dependencies (only for new sandboxes)
+    if (isNew && fragment.has_additional_dependencies) {
+      console.log('Installing dependencies...')
       await sbx.commands.run(fragment.install_dependencies_command)
-      console.log(
-        `Installed dependencies: ${fragment.additional_dependencies.join(', ')} in sandbox ${sbx.sandboxId}`,
-      )
     }
-    
-    // Handle different code formats
-    if (fragment.code) {
-      console.log('Fragment code type:', typeof fragment.code)
-      console.log('Fragment has file_path:', !!fragment.file_path)
-      console.log('Fragment has files:', !!(fragment as any).files)
-      
-      // Check if fragment has a 'files' property (new format)
-      if ((fragment as any).files && Array.isArray((fragment as any).files)) {
-        console.log('Processing fragment.files array:', (fragment as any).files.length, 'files')
-        for (const file of (fragment as any).files) {
-          if (isBinaryFile(file.path)) {
-            // Handle binary files without AI injection
-            console.log(`Processing binary file: ${file.path}`)
-            const binaryContent = processBinaryContent(file.content, file.path)
-            // Convert Buffer to ArrayBuffer for compatibility with the API
-            const arrayBuffer = bufferToArrayBuffer(binaryContent)
-            await sbx.files.write(file.path, arrayBuffer)
-            console.log(`Wrote binary file: ${file.path} (${binaryContent.length} bytes) in ${sbx.sandboxId}`)
-          } else {
-            // Handle text files with AI injection
-            const codeWithAI = injectAI(file.content, fragment.template, file.path, process.env.OPENROUTER_API_KEY)
-            await sbx.files.write(file.path, codeWithAI)
-            console.log(`Wrote text file: ${file.path} (${file.content.length} chars) in ${sbx.sandboxId}`)
-          }
-        }
-      } else if (Array.isArray(fragment.code)) {
-        // Handle array format
-        console.log('Processing fragment.code array:', fragment.code.length, 'files')
-        for (const file of fragment.code) {
-          if (isBinaryFile(file.file_path)) {
-            // Handle binary files without AI injection
-            console.log(`Processing binary file: ${file.file_path}`)
-            const binaryContent = processBinaryContent(file.file_content, file.file_path)
-            // Convert Buffer to ArrayBuffer for compatibility with the API
-            const arrayBuffer = bufferToArrayBuffer(binaryContent)
-            await sbx.files.write(file.file_path, arrayBuffer)
-            console.log(`Wrote binary file: ${file.file_path} (${binaryContent.length} bytes) in ${sbx.sandboxId}`)
-          } else {
-            // Handle text files with AI injection
-            const codeWithAI = injectAI(file.file_content, fragment.template, file.file_path, process.env.OPENROUTER_API_KEY)
-            await sbx.files.write(file.file_path, codeWithAI)
-            console.log(`Wrote text file: ${file.file_path} in ${sbx.sandboxId}`)
-          }
-        }
-      } else if (typeof fragment.code === 'string' && fragment.file_path) {
-        // Handle string format
-        console.log('Processing fragment.code string')
-        if (isBinaryFile(fragment.file_path)) {
-          // Handle binary file without AI injection
-          console.log(`Processing binary file: ${fragment.file_path}`)
-          const binaryContent = processBinaryContent(fragment.code, fragment.file_path)
-          // Convert Buffer to ArrayBuffer for compatibility with the API
-          const arrayBuffer = bufferToArrayBuffer(binaryContent)
-          await sbx.files.write(fragment.file_path, arrayBuffer)
-          console.log(`Wrote binary file: ${fragment.file_path} (${binaryContent.length} bytes) in ${sbx.sandboxId}`)
-        } else {
-          // Handle text file with AI injection
-          const codeWithAI = injectAI(fragment.code, fragment.template, fragment.file_path, process.env.OPENROUTER_API_KEY)
-          await sbx.files.write(fragment.file_path, codeWithAI)
-          console.log(`Copied file with AI to ${fragment.file_path} in ${sbx.sandboxId}`)
-        }
-      } else {
-        console.warn('Fragment has code but no recognized format')
-      }
-    } else {
-      console.warn('Fragment has no code property')
-    }
-    
-    // For Next.js templates, restart the dev server to pick up changes
-    if (fragment.template === 'nextjs-developer') {
-      console.log('Restarting Next.js dev server to pick up changes...')
-      try {
-        // Kill existing Next.js process and restart
-        await sbx.commands.run('pkill -f "next"')
-        await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1 second
-        
-        // Start Next.js dev server in background
-        sbx.commands.run('cd /home/user && npm run dev')
-        console.log('Next.js dev server restarted')
-      } catch (error) {
-        console.warn('Failed to restart Next.js dev server:', error)
-        // Continue anyway, the original server might still work
-      }
-    }
-    
-    // Execute code or return a URL to the running sandbox
+
+    // 2. Inject AI capabilities and write the code
+    const codeWithAI = injectAI(fragment.code, fragment.template)
+    await sbx.files.write(fragment.file_path, codeWithAI)
+    console.log(`Wrote file to ${fragment.file_path}`)
+
+    // 3. Handle execution based on template type
     if (fragment.template === 'code-interpreter-v1') {
-      const codeToRun = typeof fragment.code === 'string' ? fragment.code : ''
-      const { logs, error, results } = await sbx.runCode(codeToRun)
-      
-      return new Response(
-        JSON.stringify({
-          sbxId: sbx?.sandboxId,
-          template: fragment.template,
-          stdout: logs.stdout,
-          stderr: logs.stderr,
-          runtimeError: error,
-          cellResults: results,
-        } as ExecutionResultInterpreter),
-      )
+       const { logs, error, results } = await sbx.runCode(fragment.code)
+      const result: ExecutionResultInterpreter = {
+        sbxId: sbx.sandboxId,
+        template: 'code-interpreter-v1',
+        stdout: logs.stdout,
+        stderr: logs.stderr,
+        runtimeError: error,
+        cellResults: results,
+      }
+      return NextResponse.json(result)
+    } else {
+      // For web apps, start the app and get the URL
+      const url = await startAppAndGetURL(sbx, fragment, !isNew)
+      const result: ExecutionResultWeb = {
+        sbxId: sbx.sandboxId,
+        url: url,
+        template: fragment.template as Exclude<TemplateId, 'code-interpreter-v1'>,
+      }
+      return NextResponse.json(result)
     }
-    
-    // For web templates, return the sandbox URL
-    // Wait a bit for the server to fully start/restart
-    if (fragment.template === 'nextjs-developer') {
-      await new Promise(resolve => setTimeout(resolve, 3000)) // Wait 3 seconds for Next.js to start
-    }
-    
-    const sandboxUrl = await sbx.getHost(fragment.port || 80)
-    const httpsUrl = sandboxUrl.startsWith('http://') 
-      ? sandboxUrl.replace('http://', 'https://') 
-      : sandboxUrl.startsWith('https://') 
-        ? sandboxUrl 
-        : `https://${sandboxUrl}`
-    
-    console.log('Returning sandbox URL:', httpsUrl)
-    
+  } catch (error: any) {
+    console.error('Sandbox error:', error)
     return new Response(
       JSON.stringify({
-        sbxId: sbx?.sandboxId,
-        template: fragment.template,
-        url: httpsUrl,
-      } as ExecutionResultWeb),
-    )
-  } catch (error) {
-    console.error('Sandbox creation error:', error)
-    
-    // Extract more specific error information
-    let errorMessage = 'Failed to create sandbox'
-    let errorDetails = 'Unknown error'
-    
-    if (error instanceof Error) {
-      errorDetails = error.message
-      
-      // Check for specific E2B errors
-      if (error.message.includes('does not have access to the template')) {
-        errorMessage = 'Template access denied'
-        errorDetails = `Your team doesn't have access to this template. ${error.message}`
-      } else if (error.message.includes('403')) {
-        errorMessage = 'Permission denied'
-        errorDetails = 'You may not have permission to create sandboxes with this configuration.'
-      }
-    }
-    
-    return new Response(
-      JSON.stringify({ 
-        error: errorMessage, 
-        details: errorDetails 
+        error: 'Sandbox Operation Failed',
+        details: error.message,
       }),
-      { status: 500 }
+      { status: 500 },
+    )
+  }
+}
+
+// Endpoint to release a session's sandbox
+export async function DELETE(req: Request) {
+  const { sessionId } = await req.json()
+  console.log('DELETE /api/sandbox for session:', sessionId)
+
+  if (!sessionId) {
+    return new Response(JSON.stringify({ error: 'Missing sessionId' }), {
+      status: 400,
+    })
+  }
+
+  try {
+    // Only the active session can be closed via this endpoint.
+    if (singleActiveSandboxManager.isActive(sessionId)) {
+      await singleActiveSandboxManager.closeCurrent()
+      return NextResponse.json({
+        success: true,
+        message: `Session ${sessionId} released.`,
+      })
+    } else {
+      // It's not an error if the session isn't active, it might have been replaced already.
+      return NextResponse.json({
+        success: true,
+        message: `Session ${sessionId} was not the active session, no action taken.`,
+      })
+    }
+  } catch (error: any) {
+    console.error('Failed to release session:', error)
+    return new Response(
+      JSON.stringify({ error: 'Failed to release session', details: error.message }),
+      { status: 500 },
     )
   }
 }

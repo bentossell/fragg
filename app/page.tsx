@@ -27,6 +27,15 @@ import { fragmentSchema as schema, FragmentSchema } from '@/lib/schema'
 import { ExecutionResult } from '@/lib/types'
 import { DeepPartial } from 'ai'
 import { forkApp } from './actions/fork-app'
+import { useSandboxManager } from '@/lib/hooks/use-sandbox-manager'
+
+// A generic fragment for pre-warming sandboxes
+const PREWARM_FRAGMENT: DeepPartial<FragmentSchema> = {
+  template: 'nextjs-developer',
+  code: 'export default () => <h1>Ready!</h1>',
+  file_path: 'pages/index.tsx',
+  port: 3000,
+}
 
 interface HistoryEntry {
   messages: Message[]
@@ -45,12 +54,15 @@ function SimplifiedHomeContent() {
   const [files, setFiles] = useState<File[]>([])
   const [selectedTemplate, setSelectedTemplate] = useState<'auto' | TemplateId>('auto')
   const [currentAppId, setCurrentAppId] = useState<string | null>(null)
-  const [appName, setAppName] = useState<string>('')
+  const [appName, setAppName] = useLocalStorage('appName', 'New App')
   const [messages, setMessages] = useState<Message[]>([])
   const [fragment, setFragment] = useState<DeepPartial<FragmentSchema> | undefined>()
   const [result, setResult] = useState<ExecutionResult | undefined>()
   const [currentTab, setCurrentTab] = useState<'code' | 'fragment'>('code')
   const [isPreviewLoading, setIsPreviewLoading] = useState(false)
+  const [isAutoSaving, setIsAutoSaving] = useState(false)
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false)
+  const [isLibraryLoading, setIsLibraryLoading] = useState(false)
   
   // URL parameters
   const [urlAppId, setUrlAppId] = useQueryState('app', parseAsString)
@@ -64,13 +76,9 @@ function SimplifiedHomeContent() {
   const [history, setHistory] = useState<HistoryEntry[]>([{ messages: [], fragment: undefined, result: undefined }])
   const [historyIndex, setHistoryIndex] = useState(0)
   
-  const appLibrary = new AppLibrary()
-  const messagesRef = useRef(messages)
-  
-  // Add state for auto-save indicator
-  const [isAutoSaving, setIsAutoSaving] = useState(false)
-  
-
+  const appLibrary = useMemo(() => new AppLibrary(), [])
+  const messagesRef = useRef<Message[]>([])
+  const sessionManager = useRef<AppLibrary | null>(null)
   
   // Handle forking an app
   const handleForkApp = useCallback(async (shareId: string) => {
@@ -153,7 +161,7 @@ function SimplifiedHomeContent() {
     if (currentAppId !== urlAppId) {
       setUrlAppId(currentAppId)
     }
-  }, [currentAppId])
+  }, [currentAppId, urlAppId, setUrlAppId])
   
   // Handle fork parameter on mount
   useEffect(() => {
@@ -223,38 +231,92 @@ function SimplifiedHomeContent() {
           template: fragment?.template,
         })
         
-        const response = await fetch('/api/sandbox', {
-          method: 'POST',
-          body: JSON.stringify({
+        const result = await getSandbox(currentAppId || `session-${Date.now()}`, fragment)
+        
+        if (result) {
+          console.log('result', result)
+          if ('url' in result) {
+            posthog.capture('sandbox_created', { url: result.url })
+          }
+          
+          setResult(result)
+          setCurrentTab('fragment')
+          
+          // Add to fragment versions
+          const newVersion: FragmentVersion = {
             fragment,
-            sessionId: currentAppId,
-          }),
-        })
-
-        const result = await response.json()
-        console.log('result', result)
-        posthog.capture('sandbox_created', { url: result.url })
-        
-        setResult(result)
-        setCurrentTab('fragment')
-        setIsPreviewLoading(false)
-        
-        // Add to fragment versions
-        const newVersion: FragmentVersion = {
-          fragment,
-          result,
-          timestamp: Date.now()
+            result,
+            timestamp: Date.now()
+          }
+          const newVersions = [...fragmentVersions, newVersion]
+          setFragmentVersions(newVersions)
+          setCurrentVersionIndex(newVersions.length - 1)
+          
+          // Warm up adjacent versions for instant switching
+          sandboxVersionWarmup.warmupAdjacentVersions(
+            newVersions,
+            newVersions.length - 1,
+            currentAppId || undefined
+          )
+          
+          // Update the last message with the result
+          const currentMessages = messagesRef.current
+          if (currentMessages.length > 0 && currentMessages[currentMessages.length - 1].role === 'assistant') {
+            const updated = [...currentMessages]
+            updated[updated.length - 1] = {
+              ...updated[updated.length - 1],
+              result,
+            }
+            setMessages(updated)
+            addToHistory(updated, fragment, result)
+          }
+          
+          // Auto-save the app when code is generated
+          setIsAutoSaving(true)
+          const firstUserMessage = currentMessages.find(m => m.role === 'user')
+          const name = appName || generateAppName(
+            firstUserMessage?.content[0]?.type === 'text' ? firstUserMessage.content[0].text : 'App'
+          )
+          
+          // Update fragment versions before saving
+          const updatedFragmentVersions = [...newVersions]
+          
+          const savedApp = appLibrary.saveApp({
+            id: currentAppId || undefined,
+            name,
+            description: firstUserMessage?.content[0]?.type === 'text' ? firstUserMessage.content[0].text : '',
+            template: selectedTemplate === 'auto' ? 'auto' : selectedTemplate,
+            code: fragment,
+            messages: currentMessages
+              .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+              .map(msg => ({
+                id: crypto.randomUUID(),
+                role: msg.role as 'user' | 'assistant',
+                content: msg.content.map(c => c.type === 'text' ? c.text : '').join('\n'),
+                createdAt: new Date().toISOString(),
+              })),
+            lastSandboxId: result.sbxId,
+            sandboxConfig: result,
+            fragmentVersions: updatedFragmentVersions,
+            currentVersionIndex: updatedFragmentVersions.length - 1
+          })
+          
+          if (!currentAppId) {
+            setCurrentAppId(savedApp.id)
+          }
+          if (!appName) {
+            setAppName(savedApp.name)
+          }
+          
+          setTimeout(() => setIsAutoSaving(false), 1500)
+        } else {
+          toast({
+            title: 'Error creating sandbox',
+            description: sandboxError || 'An unknown error occurred.',
+            variant: 'destructive',
+          })
         }
-        const newVersions = [...fragmentVersions, newVersion]
-        setFragmentVersions(newVersions)
-        setCurrentVersionIndex(newVersions.length - 1)
-        
-        // Warm up adjacent versions for instant switching
-        sandboxVersionWarmup.warmupAdjacentVersions(
-          newVersions,
-          newVersions.length - 1,
-          currentAppId || undefined
-        )
+        setIsPreviewLoading(false)
         
         // Update the last message with the result
         const currentMessages = messagesRef.current
@@ -267,45 +329,6 @@ function SimplifiedHomeContent() {
           setMessages(updated)
           addToHistory(updated, fragment, result)
         }
-        
-        // Auto-save the app when code is generated
-        setIsAutoSaving(true)
-        const firstUserMessage = currentMessages.find(m => m.role === 'user')
-        const name = appName || generateAppName(
-          firstUserMessage?.content[0]?.type === 'text' ? firstUserMessage.content[0].text : 'App'
-        )
-        
-        // Update fragment versions before saving
-        const updatedFragmentVersions = [...newVersions]
-        
-        const savedApp = appLibrary.saveApp({
-          id: currentAppId || undefined,
-          name,
-          description: firstUserMessage?.content[0]?.type === 'text' ? firstUserMessage.content[0].text : '',
-          template: selectedTemplate === 'auto' ? 'auto' : selectedTemplate,
-          code: fragment,
-          messages: currentMessages
-            .filter(msg => msg.role === 'user' || msg.role === 'assistant')
-            .map(msg => ({
-              id: crypto.randomUUID(),
-              role: msg.role as 'user' | 'assistant',
-              content: msg.content.map(c => c.type === 'text' ? c.text : '').join('\n'),
-              createdAt: new Date().toISOString(),
-            })),
-          lastSandboxId: result.sbxId,
-          sandboxConfig: result,
-          fragmentVersions: updatedFragmentVersions,
-          currentVersionIndex: updatedFragmentVersions.length - 1
-        })
-        
-        if (!currentAppId) {
-          setCurrentAppId(savedApp.id)
-        }
-        if (!appName) {
-          setAppName(savedApp.name)
-        }
-        
-        setTimeout(() => setIsAutoSaving(false), 1500)
       }
     },
   })
@@ -415,7 +438,7 @@ function SimplifiedHomeContent() {
         }
       }
     }
-  }, [fragmentVersions, currentAppId])
+  }, [fragmentVersions, currentAppId, appLibrary])
 
   const goToPreviousVersion = useCallback(() => {
     if (currentVersionIndex > 0) {
@@ -500,7 +523,7 @@ function SimplifiedHomeContent() {
     }, 30000) // Auto-save every 30 seconds
     
     return () => clearInterval(saveInterval)
-  }, [currentAppId, messages, fragment, selectedTemplate, result, fragmentVersions, currentVersionIndex])
+  }, [currentAppId, messages, fragment, selectedTemplate, result, fragmentVersions, currentVersionIndex, appLibrary])
 
   const handleNewApp = useCallback(async () => {
     // Close current sandbox
@@ -563,7 +586,14 @@ function SimplifiedHomeContent() {
       title: 'App saved',
       description: `"${name}" has been saved to your library.`,
     })
-  }, [appName, currentAppId, messages, fragment, selectedTemplate, result, fragmentVersions, currentVersionIndex])
+  }, [appName, currentAppId, messages, fragment, selectedTemplate, result, fragmentVersions, currentVersionIndex, appLibrary])
+
+  const { 
+    getSandbox, 
+    releaseSandbox, 
+    isLoading: isSandboxLoading, 
+    error: sandboxError 
+  } = useSandboxManager()
 
   const handleLoadFromLibrary = useCallback(async (app: SavedApp) => {
     console.log('Loading app from library:', app.name)
@@ -579,18 +609,17 @@ function SimplifiedHomeContent() {
     // Restore fragment versions if available
     if (app.fragmentVersions && app.fragmentVersions.length > 0) {
       setFragmentVersions(app.fragmentVersions)
-      setCurrentVersionIndex(app.currentVersionIndex ?? app.fragmentVersions.length - 1)
+      const currentVersionIdx = app.currentVersionIndex ?? app.fragmentVersions.length - 1
+      setCurrentVersionIndex(currentVersionIdx)
       
       // Load the current version
-      const currentVersion = app.fragmentVersions[app.currentVersionIndex ?? app.fragmentVersions.length - 1]
+      const currentVersion = app.fragmentVersions[currentVersionIdx]
       setFragment(currentVersion.fragment)
-      // Don't set the old result yet - wait until we create/verify sandbox
-      setResult(undefined)
+      setResult(undefined) // Don't set the old result yet - wait until we create/verify sandbox
     } else {
       // Fallback to old format - create a single version from app.code
       setFragment(app.code)
-      // Don't set the old result yet
-      setResult(undefined)
+      setResult(undefined) // Don't set the old result yet
       
       if (app.code) {
         const version: FragmentVersion = {
@@ -626,76 +655,25 @@ function SimplifiedHomeContent() {
       const currentFragment = app.fragmentVersions && app.fragmentVersions.length > 0 
         ? app.fragmentVersions[app.currentVersionIndex ?? app.fragmentVersions.length - 1].fragment
         : app.code
-      const currentResult = app.fragmentVersions && app.fragmentVersions.length > 0
-        ? app.fragmentVersions[app.currentVersionIndex ?? app.fragmentVersions.length - 1].result
-        : app.sandboxConfig
       
       // Always create a new sandbox when loading from library
       if (currentFragment) {
         setIsPreviewLoading(true)
         try {
-          const response = await fetch('/api/sandbox', {
-            method: 'POST',
-            body: JSON.stringify({
-              fragment: currentFragment,
-              sessionId: app.id,
-            }),
-          })
-          
-          const result = await response.json()
-          
-          // Check if sandbox creation was successful
-          if (!response.ok || result.error) {
-            throw new Error(result.details || result.error || 'Failed to create sandbox')
-          }
-          
-          console.log('Created new sandbox for loaded app:', result.sbxId)
-          setResult(result)
-          
-          // Update the version with the new result
-          if (app.fragmentVersions && app.fragmentVersions.length > 0) {
-            const updatedVersions = [...app.fragmentVersions]
-            const versionIndex = app.currentVersionIndex ?? app.fragmentVersions.length - 1
-            updatedVersions[versionIndex] = {
-              ...updatedVersions[versionIndex],
-              result
-            }
-            setFragmentVersions(updatedVersions)
-            
-            // Warm up adjacent versions for instant switching
-            sandboxVersionWarmup.warmupAdjacentVersions(
-              updatedVersions,
-              versionIndex,
-              app.id
-            )
-          }
-          
-          // Update the app with the new sandbox config
-          appLibrary.saveApp({
-            ...app,
-            sandboxConfig: result,
-            lastSandboxId: result.sbxId,
-            fragmentVersions: app.fragmentVersions && app.fragmentVersions.length > 0 ? fragmentVersions : undefined
-          })
-          
-          // Update the last message with the result if it exists
-          if (chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'assistant') {
-            const updated = [...chatMessages]
-            updated[updated.length - 1] = {
-              ...updated[updated.length - 1],
-              result,
-            }
-            setMessages(updated)
+          const result = await getSandbox(app.id, currentFragment)
+          if (result) {
+            console.log('Created new sandbox for loaded app:', result.sbxId)
+            setResult(result)
+          } else {
+             throw new Error('Failed to get a sandbox.')
           }
         } catch (error) {
-          console.error('Failed to create sandbox:', error)
+          console.error('Error loading app from library:', error)
           toast({
-            title: 'Failed to load preview',
-            description: error instanceof Error ? error.message : 'Could not create sandbox for the app. The code is still available.',
-            variant: 'destructive'
+            title: 'Failed to load app',
+            description: error instanceof Error ? error.message : 'Unknown error',
+            variant: 'destructive',
           })
-          // Keep the fragment loaded even if sandbox creation fails
-          setCurrentTab('code')
         } finally {
           setIsPreviewLoading(false)
         }
@@ -706,7 +684,7 @@ function SimplifiedHomeContent() {
       title: 'App loaded',
       description: `"${app.name}" has been loaded from your library.`,
     })
-  }, [])
+  }, [appLibrary, getSandbox])
 
   // Check if we need to load an app from library on mount
   useEffect(() => {
@@ -728,7 +706,7 @@ function SimplifiedHomeContent() {
         }
       }
     }
-  }, [urlAppId]) // Only depend on urlAppId to prevent re-renders
+  }, [urlAppId, appLibrary, handleLoadFromLibrary, setUrlAppId])
 
   const handleClear = useCallback(() => {
     stop()
@@ -881,6 +859,15 @@ function SimplifiedHomeContent() {
       config: languageModel,
     })
   }, [messages, stop, currentTemplate, currentModel, languageModel, submit, addToHistory])
+
+  // --- Pre-warm a sandbox when the library is opened ---
+  useEffect(() => {
+    if (isLibraryOpen) {
+      console.log('[Pre-warm] Library opened, sending pre-warm request...')
+      fetch('/api/sandbox/prewarm', { method: 'PUT' })
+        .catch(err => console.error('[Pre-warm] Failed to send pre-warm request:', err))
+    }
+  }, [isLibraryOpen])
 
   return (
     <main className="flex flex-col h-screen">

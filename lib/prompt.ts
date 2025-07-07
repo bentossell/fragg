@@ -1,6 +1,21 @@
-import { Templates, templatesToPrompt } from '@/lib/templates'
+import { Template, TemplateId, templates } from '@/lib/templates'
 
-export function toPrompt(template: Templates) {
+function templatesToPrompt(tpls: Record<TemplateId, Template>): string {
+  return Object.values(tpls)
+    .map(
+      (t) =>
+        `- ${t.name} (${t.id}): ${t.description} (tags: ${t.tags.join(', ')})`,
+    )
+    .join('\n')
+}
+
+export function toPrompt(template: Record<TemplateId, Template> | null) {
+  // Add defensive check for template parameter
+  if (!template) {
+    console.error('No template parameter passed to toPrompt, using all templates')
+    template = templates
+  }
+
   return `
     You are a world-class software engineer who creates BEAUTIFUL, MODERN applications.
     Your apps should be visually stunning and user-friendly, whilst being functional and practical.

@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/tooltip'
 import { isFileInArray } from '@/lib/utils'
 import { ArrowUp, Paperclip, Square, X } from 'lucide-react'
-import { SetStateAction, useEffect, useMemo, useState } from 'react'
+import { SetStateAction, useEffect, useMemo, useState, useCallback } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
 
 export function ChatInput({
@@ -50,9 +50,9 @@ export function ChatInput({
     })
   }
 
-  function handleFileRemove(file: File) {
+  const handleFileRemove = useCallback((file: File) => {
     handleFileChange((prev) => prev.filter((f) => f !== file))
-  }
+  }, [handleFileChange])
 
   function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
     const items = Array.from(e.clipboardData.items)
@@ -124,7 +124,7 @@ export function ChatInput({
         </div>
       )
     })
-  }, [files])
+  }, [files, handleFileRemove])
 
   function onEnter(e: React.KeyboardEvent<HTMLFormElement>) {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -141,7 +141,7 @@ export function ChatInput({
     if (!isMultiModal) {
       handleFileChange([])
     }
-  }, [isMultiModal])
+  }, [isMultiModal, handleFileChange])
 
   return (
     <form

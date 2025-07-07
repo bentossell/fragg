@@ -23,8 +23,8 @@ export interface TriageResult {
 const ULTRA_FAST_RULES: Record<string, Partial<TriageResult>> = {
   // Static site patterns - fastest generation
   'personal website|portfolio|resume|cv|about me|landing page|company website|business website|personal site|my website|homepage|home page|personal page|portfolio site|online resume|digital resume|bio|biography|personal bio|showcase|personal showcase|profile|personal profile|professional profile|online presence|web presence|single page|simple website|basic website|static website|static site|html website|html site|introduction|personal introduction|about page': {
-    stack: 'static',
-    template: 'static-html',
+    stack: 'nextjs',
+    template: 'nextjs-developer',
     priority: 'ultra-fast',
     requirements: {
       needsBackend: false,
@@ -39,8 +39,8 @@ const ULTRA_FAST_RULES: Record<string, Partial<TriageResult>> = {
   
   // Business/Marketing sites that should be static
   'marketing site|marketing website|brochure site|brochure website|info site|information site|promotional site|promotional website|agency website|agency site|consulting website|service website|services website|product page|sales page|coming soon|under construction|maintenance page|contact page|about us|company info|company information': {
-    stack: 'static',
-    template: 'static-html',
+    stack: 'nextjs',
+    template: 'nextjs-developer',
     priority: 'ultra-fast',
     requirements: {
       needsBackend: false,
@@ -55,8 +55,8 @@ const ULTRA_FAST_RULES: Record<string, Partial<TriageResult>> = {
   
   // Simple interactive tools
   'calculator|converter|timer|counter|quiz|form|contact form|survey|simple form|basic form|feedback form|newsletter|email signup|subscribe|subscription form|simple tool|basic tool|utility|web tool|online tool': {
-    stack: 'static',
-    template: 'static-html',
+    stack: 'nextjs',
+    template: 'nextjs-developer',
     priority: 'fast',
     requirements: {
       needsBackend: false,
@@ -105,8 +105,8 @@ const ULTRA_FAST_RULES: Record<string, Partial<TriageResult>> = {
 const FAST_RULES: Record<string, Partial<TriageResult>> = {
   // More static patterns that are slightly more complex
   'restaurant website|restaurant site|cafe website|menu page|food menu|restaurant menu|small business website|small business site|local business|service page|pricing page|price list|testimonials|reviews page|faq page|frequently asked questions|help page|documentation page|simple docs|product showcase|service showcase|photo gallery|image gallery|portfolio gallery': {
-    stack: 'static',
-    template: 'static-html',
+    stack: 'nextjs',
+    template: 'nextjs-developer',
     priority: 'fast',
     requirements: {
       needsBackend: false,
@@ -137,8 +137,8 @@ const FAST_RULES: Record<string, Partial<TriageResult>> = {
   
   // Simple games
   'game|puzzle|tic tac toe|memory game|snake|tetris|simple game': {
-    stack: 'static',
-    template: 'static-html',
+    stack: 'nextjs',
+    template: 'nextjs-developer',
     priority: 'fast',
     requirements: {
       needsBackend: false,
@@ -222,9 +222,9 @@ export async function triageRequest(userPrompt: string): Promise<TriageResult> {
     
     if (!needsComplex) {
       return {
-        stack: 'static',
-        template: 'static-html',
-        reasoning: wantsSimple ? 'User explicitly requested a simple/static site' : 'Personal website detected - using static HTML for simplicity',
+        stack: 'nextjs',
+        template: 'nextjs-developer',
+        reasoning: wantsSimple ? 'User explicitly requested a simple/static site' : 'Personal website detected - using Next.js for simplicity',
         requirements: {
           needsBackend: false,
           needsDatabase: false,
@@ -371,8 +371,8 @@ Return valid JSON only, no markdown or explanations.`
     const shouldUseStatic = (isSimple && !needsBackend) || (!needsBackend && userPrompt.length < 100)
     
     return {
-      stack: shouldUseStatic ? 'static' : 'nextjs',
-      template: shouldUseStatic ? 'static-html' : 'nextjs-developer',
+      stack: 'nextjs',
+      template: 'nextjs-developer',
       reasoning: shouldUseStatic ? 'Simple site without backend requirements' : 'Complex features or backend requirements detected',
       requirements: {
         needsBackend: needsBackend,
