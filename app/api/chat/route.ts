@@ -32,17 +32,22 @@ export async function POST(req: Request) {
     ? lastUserMessage.content.find((c: any) => c.type === 'text')?.text 
     : lastUserMessage?.content
 
-  console.log('🚀 Chat API: Processing request')
-  console.log('- Model:', model?.id || 'default')
-  console.log('- Template:', template || 'auto')
-  console.log('- User prompt:', userPrompt?.substring(0, 100) + '...')
+  // Only log in development
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🚀 Chat API: Processing request')
+    console.log('- Model:', model?.id || 'default')
+    console.log('- Template:', template || 'auto')
+    console.log('- User prompt:', userPrompt?.substring(0, 100) + '...')
+  }
 
   // Rate limiting
   try {
     const identifier = req.headers.get('x-forwarded-for') ?? 'anonymous'
     const rateLimitResult = await ratelimit(identifier, rateLimitMaxRequests, ratelimitWindow)
     if (rateLimitResult) {
-      console.log('❌ Rate limit exceeded for:', identifier)
+      if (process.env.NODE_ENV === 'development') {
+        console.log('❌ Rate limit exceeded for:', identifier)
+      }
       return new Response('Rate limit exceeded', { status: 429 })
     }
   } catch (error) {
@@ -52,7 +57,9 @@ export async function POST(req: Request) {
   // Generate unique request ID for tracking
   const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
   
-  console.log(`🎯 Starting generation [${requestId}]`)
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`🎯 Starting generation [${requestId}]`)
+  }
 
   // Use default model if none provided
   const defaultModel = {
@@ -70,24 +77,32 @@ export async function POST(req: Request) {
   if (!template || template === 'auto') {
     try {
       const optimalTemplate = selectOptimalTemplate(userPrompt || '')
-      console.log(`🎯 Auto-selected template: ${optimalTemplate}`)
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`🎯 Auto-selected template: ${optimalTemplate}`)
+      }
       
       // Ensure the selected template exists in our templates
       if (optimalTemplate && templates[optimalTemplate as TemplateId]) {
         templateToUse = { [optimalTemplate]: templates[optimalTemplate as TemplateId] }
       } else {
-        console.warn(`Selected template "${optimalTemplate}" not found, using all templates`)
+        if (process.env.NODE_ENV === 'development') {
+          console.warn(`Selected template "${optimalTemplate}" not found, using all templates`)
+        }
         templateToUse = templates
       }
     } catch (error) {
-      console.warn('Template selection failed, using default:', error)
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('Template selection failed, using default:', error)
+      }
       templateToUse = templates
     }
   }
 
   // Additional validation to ensure templateToUse is valid
   if (!templateToUse || typeof templateToUse !== 'object') {
-    console.warn('Invalid templateToUse, falling back to default templates')
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('Invalid templateToUse, falling back to default templates')
+    }
     templateToUse = templates
   }
 
@@ -97,7 +112,9 @@ export async function POST(req: Request) {
 
   try {
     modelClient = getModelClient(modelToUse, config || {})
-    console.log('✅ Model client configured:', modelToUse.id)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('✅ Model client configured:', modelToUse.id)
+    }
   } catch (error) {
     console.error('❌ Failed to get model client:', error)
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
@@ -109,8 +126,10 @@ export async function POST(req: Request) {
 
   // Execute generation with proper AI SDK streaming
   try {
-    console.log(`🔄 Generating with model: ${modelToUse.id}`)
-    console.log(`📄 Using prompt template:`, typeof templateToUse === 'string' ? templateToUse : 'dynamic')
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`🔄 Generating with model: ${modelToUse.id}`)
+      console.log(`📄 Using prompt template:`, typeof templateToUse === 'string' ? templateToUse : 'dynamic')
+    }
     
     const stream = await streamObject({
       model: modelClient as LanguageModel,
@@ -121,7 +140,9 @@ export async function POST(req: Request) {
       ...modelParams,
     })
 
-    console.log(`✅ Stream created successfully [${requestId}]`)
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`✅ Stream created successfully [${requestId}]`)
+    }
 
     return stream.toTextStreamResponse({
       headers: {

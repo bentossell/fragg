@@ -63,10 +63,10 @@ export const ChatInput = memo(function ChatInput({
     handleFileChange((prev) => prev.filter((f) => f !== file))
   }, [handleFileChange])
 
-  // Debounced input change for better performance
-  const debouncedInputChange = useDebouncedCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    handleInputChange(e)
-  }, 150, { leading: true, trailing: true })
+  // Remove debounced input - it's not being used and may cause issues
+  // const debouncedInputChange = useDebouncedCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  //   handleInputChange(e)
+  // }, 150, { leading: true, trailing: true })
 
   function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
     const items = Array.from(e.clipboardData.items)

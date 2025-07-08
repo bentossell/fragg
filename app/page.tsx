@@ -692,7 +692,9 @@ const EnhancedApp = memo(function EnhancedApp() {
       let result: ExecutionResult | null = null
       
       if (shouldUseBrowserPreview(userId) && templateSupportsBrowserPreview(fragment.template || 'nextjs-developer')) {
-        console.log('🌐 Using browser preview for instant rendering')
+        if (process.env.NODE_ENV === 'development') {
+          console.log('🌐 Using browser preview for instant rendering')
+        }
         
         // For browser preview, we don't create a result object
         // The FragmentPreview component will handle the browser preview directly
@@ -703,7 +705,9 @@ const EnhancedApp = memo(function EnhancedApp() {
           userId 
         })
       } else {
-        console.log('🚀 Using E2B sandbox for execution')
+        if (process.env.NODE_ENV === 'development') {
+          console.log('🚀 Using E2B sandbox for execution')
+        }
         
         result = await getSandbox(
           appState.currentAppId || `session-${Date.now()}`, 
@@ -717,7 +721,9 @@ const EnhancedApp = memo(function EnhancedApp() {
       }
 
       // Update logic to handle null result for browser preview
-      console.log('✅ Preview ready:', result ? 'E2B sandbox' : 'Browser preview')
+      if (process.env.NODE_ENV === 'development') {
+        console.log('✅ Preview ready:', result ? 'E2B sandbox' : 'Browser preview')
+      }
 
       // Update app state with results
       setAppState(prev => ({
@@ -1183,6 +1189,31 @@ const EnhancedApp = memo(function EnhancedApp() {
     }
   }, [systemState.conversationalSystem, appState.fragment, appState.currentAppId])
 
+  // Handle diff update from chat input
+  const handleChatDiffUpdate = useCallback(() => {
+    if (!input.trim()) {
+      toast({
+        title: 'No changes specified',
+        description: 'Please describe what changes you want to make.',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    if (!appState.fragment) {
+      toast({
+        title: 'No code to modify',
+        description: 'Please generate some code first before making incremental changes.',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    // Use the diff system to apply incremental changes
+    handleDiffUpdate(input.trim())
+    setInput('') // Clear input after applying diff
+  }, [input, appState.fragment, handleDiffUpdate])
+
   // UI event handlers
   const handleTabChange = useCallback((tab: string) => {
     setUIState(prev => ({ ...prev, currentTab: tab as UIState['currentTab'] }))
@@ -1342,7 +1373,26 @@ const EnhancedApp = memo(function EnhancedApp() {
               isMultiModal={currentModel?.multiModal || false}
               files={files}
               handleFileChange={setFiles}
-              onDiffUpdate={() => setUIState(prev => ({ ...prev, isDiffDialogOpen: true }))}
+              onDiffUpdate={() => {
+                if (!input.trim()) {
+                  toast({
+                    title: 'No changes specified',
+                    description: 'Please describe what changes you want to make.',
+                    variant: 'destructive'
+                  })
+                  return
+                }
+                if (!appState.fragment) {
+                  toast({
+                    title: 'No code to modify', 
+                    description: 'Please generate some code first.',
+                    variant: 'destructive'
+                  })
+                  return
+                }
+                handleDiffUpdate(input.trim())
+                setInput('')
+              }}
             >
                 <ChatPicker
                   templates={templates}
@@ -1487,7 +1537,26 @@ const EnhancedApp = memo(function EnhancedApp() {
               isMultiModal={currentModel?.multiModal || false}
               files={files}
               handleFileChange={setFiles}
-              onDiffUpdate={() => setUIState(prev => ({ ...prev, isDiffDialogOpen: true }))}
+              onDiffUpdate={() => {
+                if (!input.trim()) {
+                  toast({
+                    title: 'No changes specified',
+                    description: 'Please describe what changes you want to make.',
+                    variant: 'destructive'
+                  })
+                  return
+                }
+                if (!appState.fragment) {
+                  toast({
+                    title: 'No code to modify', 
+                    description: 'Please generate some code first.',
+                    variant: 'destructive'
+                  })
+                  return
+                }
+                handleDiffUpdate(input.trim())
+                setInput('')
+              }}
             >
             <ChatPicker
               templates={templates}
@@ -1574,7 +1643,8 @@ const EnhancedApp = memo(function EnhancedApp() {
     handleSoundToggle,
     getSandbox,
     isMobile,
-    setFiles
+    setFiles,
+    handleChatDiffUpdate
   ])
 
   // Render layout controls
