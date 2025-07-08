@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git checkout:*)",
+      "Bash(npm run lint)",
+      "Bash(npx tsc:*)",
+      "Bash(grep:*)",
+      "Bash(cp:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run dev:*)",
+      "Bash(curl:*)",
+      "Bash(npm run build:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(rm:*)",
+      "Bash(npm run type-check:*)",
+      "Bash(true)",
+      "Bash(node:*)",
+      "Bash(kill:*)",
+      "Bash(pkill:*)",
+      "WebFetch(domain:localhost)",
+      "Bash(mkdir:*)"
+    ],
+    "deny": []
+  }
+}

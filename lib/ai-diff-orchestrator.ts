@@ -125,7 +125,7 @@ export class AIDiffOrchestrator {
     )
 
     // Step 3: Create smart changes with AI assistance
-    const generatedChanges = await this.generateAIAssistedChanges(
+    const generatedChanges = await this.generateChangesFromAnalysis(
       userPrompt,
       currentCode,
       intentAnalysis,
@@ -422,6 +422,71 @@ Respond in JSON format.`
         description: 'General code modification',
         affectedAreas: ['main component']
       }
+    }
+  }
+
+  /**
+   * Generate CodeChange objects using AI based on intent analysis
+   * Added to replace stub logic with an actual AI‐driven diff generator
+   */
+  private async generateChangesFromAnalysis(
+    userPrompt: string,
+    currentCode: any,
+    intentAnalysis: SmartChangeDetection['intentAnalysis'],
+    options: DiffGenerationOptions
+  ): Promise<CodeChange[]> {
+    const codeStr =
+      typeof currentCode === 'string'
+        ? currentCode
+        : JSON.stringify(currentCode, null, 2)
+
+    const systemPrompt = `
+You are an AI code-diff engine. The user asked:
+"${userPrompt}"
+
+Their intent is "${intentAnalysis.primaryIntent}" with description "${intentAnalysis.description}".
+
+Current file contents below delimited by <code></code>.  Produce ONLY a JSON array where each element is:
+{
+  "type": "insertion" | "deletion" | "modification",
+  "startLine": number,
+  "endLine": number,
+  "content": "string",
+  "confidence": 0-1
+}
+
+<code>
+${codeStr}
+</code>
+`
+
+    const raw = await this.callAI(systemPrompt, {
+      temperature: options.temperature ?? 0.2,
+      maxTokens: 2048,
+    })
+
+    try {
+      const parsed: any = JSON.parse(raw)
+      if (!Array.isArray(parsed)) throw new Error('Not array')
+      return parsed
+        .filter(
+          (c) =>
+            typeof c.startLine === 'number' &&
+            typeof c.endLine === 'number' &&
+            typeof c.content === 'string'
+        )
+        .map(
+          (c): CodeChange => ({
+            type: c.type || 'modification',
+            startLine: c.startLine,
+            endLine: c.endLine,
+            content: c.content,
+            confidence: c.confidence ?? 0.5,
+          })
+        )
+    } catch (err) {
+      console.warn('AI diff JSON parse failed, falling back:', err)
+      return this.generateFallbackChanges(userPrompt, codeStr, intentAnalysis)
     }
   }
 
