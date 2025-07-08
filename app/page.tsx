@@ -1206,10 +1206,19 @@ const EnhancedApp = memo(function EnhancedApp() {
       })
 
       if (!response.ok) {
-        throw new Error(`Diff API failed: ${response.status}`)
+        const errorText = await response.text()
+        console.error('Diff API error response:', errorText)
+        throw new Error(`Diff API failed: ${response.status} - ${errorText.substring(0, 100)}`)
       }
 
-      const result = await response.json()
+      let result
+      try {
+        const responseText = await response.text()
+        result = JSON.parse(responseText)
+      } catch (parseError) {
+        console.error('Failed to parse diff API response:', parseError)
+        throw new Error('Invalid response from diff API - not valid JSON')
+      }
 
       // Update progress during processing
       setAppState(prev => ({
@@ -1250,54 +1259,43 @@ const EnhancedApp = memo(function EnhancedApp() {
         }))
 
         // Handle version creation (server-side already created it, we just need to sync)
-        if (result.versionId && systemState.versionSystem) {
-          try {
-            // Sync with server-side version by loading it into our local state
-            const serverVersion = systemState.versionSystem.getVersion(result.versionId)
-            if (serverVersion) {
-              // Update local versions list if the version exists
-              setSystemState(prev => ({
-                ...prev,
-                versions: prev.versions.some(v => v.id === result.versionId) 
-                  ? prev.versions 
-                  : [...prev.versions, serverVersion]
-              }))
-            } else {
-              // If version doesn't exist locally, create a local version for consistency
-              // This handles the case where the server created a version but we need it locally
-              const localVersion = systemState.versionSystem.createVersion(
-                parsedCode,
-                `Incremental update: ${prompt.substring(0, 50)}`,
-                prompt,
-                'user',
-                ['diff-update', 'incremental', 'server-sync']
-              )
+        if (result.versionId) {
+          if (systemState.versionSystem) {
+            try {
+              // Try to sync with server-side version
+              const serverVersion = systemState.versionSystem.getVersion(result.versionId)
+              if (serverVersion) {
+                // Update local versions list if the version exists
+                setSystemState(prev => ({
+                  ...prev,
+                  versions: prev.versions.some(v => v.id === result.versionId) 
+                    ? prev.versions 
+                    : [...prev.versions, serverVersion]
+                }))
+              } else {
+                // Version doesn't exist locally, but server created it
+                // Just track the version ID for now
+                if (process.env.NODE_ENV === 'development') {
+                  console.log('📦 Server created version, but not available locally:', result.versionId)
+                }
+              }
               
-              setSystemState(prev => ({
-                ...prev,
-                versions: [...prev.versions, localVersion]
-              }))
+              if (process.env.NODE_ENV === 'development') {
+                console.log('📦 Version tracked for diff update:', result.versionId)
+              }
+            } catch (versionError) {
+              console.error('Failed to sync version for diff update:', versionError)
+              // Don't fail the entire diff update if version sync fails
+              if (process.env.NODE_ENV === 'development') {
+                console.log('⚠️ Version sync failed, but continuing with diff update')
+              }
             }
-            
+          } else {
+            // Version system not initialized, but server created a version
             if (process.env.NODE_ENV === 'development') {
-              console.log('📦 Version synced for diff update:', result.versionId)
+              console.log('📦 Server created version but client version system not initialized:', result.versionId)
             }
-          } catch (versionError) {
-            console.error('Failed to sync version for diff update:', versionError)
-            // Don't fail the entire diff update if version sync fails
-            toast({
-              title: 'Version sync warning',
-              description: 'Changes applied successfully, but version tracking may be incomplete.',
-              variant: 'destructive'
-            })
           }
-        } else if (result.versionId && !systemState.versionSystem) {
-          // Version system not initialized, but server created a version
-          console.warn('Server created version but client version system not initialized:', result.versionId)
-          toast({
-            title: 'Version system not ready',
-            description: 'Changes applied successfully, but version tracking is not available.',
-          })
         }
 
         // Update sandbox/preview
