@@ -1571,7 +1571,7 @@ const EnhancedApp = memo(function EnhancedApp() {
           </TabsContent>
           
           <TabsContent value="chat" className="flex-1 overflow-hidden flex flex-col">
-            <div className="flex-1 overflow-auto">
+            <div className="flex-1 overflow-auto px-4">
               <Chat
                 messages={appState.messages}
                 isLoading={appState.isGenerating}

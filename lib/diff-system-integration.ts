@@ -115,6 +115,7 @@ export class DiffSystemIntegration {
           this.versionSystem = new EnhancedVersionSystem(appId)
         } catch (error) {
           console.warn('Version system initialization failed:', error)
+          this.versionSystem = null as any // Set to null explicitly
           this.systemOptions.enableVersionTracking = false // Disable if initialization fails
         }
       }
@@ -361,8 +362,11 @@ export class DiffSystemIntegration {
       // Update metrics
       this.updateMetrics(startTime, validationErrors.length === 0, diffResult)
 
+      // Determine success: diff should succeed even if version tracking fails
+      const isSuccessful = validationErrors.length === 0 && diffResult?.success !== false
+      
       return {
-        success: validationErrors.length === 0,
+        success: isSuccessful,
         changeId: changeRecord?.id,
         versionId,
         diffResult,

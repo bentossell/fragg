@@ -420,7 +420,22 @@ export class EnhancedVersionSystem {
    * Get version tree
    */
   getVersionTree(): VersionTree | null {
-    if (typeof window === 'undefined') return null
+    // For server-side, return a minimal tree structure to prevent errors
+    if (typeof window === 'undefined') {
+      return {
+        versions: [],
+        branches: [{
+          id: 'main',
+          name: 'main',
+          isMainBranch: true,
+          isActive: true,
+          createdAt: new Date().toISOString()
+        }],
+        currentBranch: 'main',
+        currentVersion: '',
+        head: ''
+      }
+    }
     
     const data = localStorage.getItem(`${this.VERSIONS_KEY}_${this.appId}`)
     return data ? JSON.parse(data) : null
