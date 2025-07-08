@@ -69,55 +69,102 @@ export function useIframeConsole(
         const script = iframeWindow.document.createElement('script')
         script.textContent = `
           (function() {
+            // Prevent multiple injections
+            if (window.__consoleCapture) return;
+            window.__consoleCapture = true;
+            
             const originalConsole = window.console;
             const methods = ['log', 'error', 'warn', 'info', 'debug'];
             
+            // Flag to prevent recursive console calls
+            let isCapturing = false;
+            
             methods.forEach(method => {
+              const originalMethod = originalConsole[method];
+              
               window.console[method] = function(...args) {
-                // Call original method
-                originalConsole[method].apply(originalConsole, args);
-                
-                // Send message to parent
+                // Always call original method first
                 try {
+                  originalMethod.apply(originalConsole, args);
+                } catch (e) {
+                  // Silently ignore if original console fails
+                }
+                
+                // Only capture if not already capturing to prevent recursion
+                if (isCapturing) return;
+                
+                try {
+                  isCapturing = true;
+                  
+                  const message = args.map(arg => {
+                    if (arg === null) return 'null';
+                    if (arg === undefined) return 'undefined';
+                    if (typeof arg === 'object') {
+                      try {
+                        return JSON.stringify(arg, null, 2);
+                      } catch {
+                        return '[Object]';
+                      }
+                    }
+                    return String(arg);
+                  }).join(' ');
+                  
+                  // Send message to parent with timeout to prevent hanging
+                  const timeoutId = setTimeout(() => {
+                    // Reset flag even if postMessage fails
+                    isCapturing = false;
+                  }, 100);
+                  
                   window.parent.postMessage({
                     type: 'console',
                     method: method,
-                    message: args.map(arg => {
-                      if (typeof arg === 'object') {
-                        try {
-                          return JSON.stringify(arg, null, 2);
-                        } catch {
-                          return String(arg);
-                        }
-                      }
-                      return String(arg);
-                    }).join(' '),
+                    message: message,
                     args: args
                   }, '*');
+                  
+                  clearTimeout(timeoutId);
+                  isCapturing = false;
                 } catch (err) {
-                  originalConsole.error('Failed to send console message to parent:', err);
+                  // Reset flag and silently fail to prevent recursion
+                  isCapturing = false;
                 }
               };
             });
             
             // Capture unhandled errors
             window.addEventListener('error', (event) => {
-              window.parent.postMessage({
-                type: 'console',
-                method: 'error',
-                message: \`Uncaught Error: \${event.message} at \${event.filename}:\${event.lineno}:\${event.colno}\`,
-                args: [event.error]
-              }, '*');
+              if (isCapturing) return;
+              
+              try {
+                isCapturing = true;
+                window.parent.postMessage({
+                  type: 'console',
+                  method: 'error',
+                  message: \`Uncaught Error: \${event.message} at \${event.filename}:\${event.lineno}:\${event.colno}\`,
+                  args: [event.error]
+                }, '*');
+                isCapturing = false;
+              } catch {
+                isCapturing = false;
+              }
             });
             
             // Capture unhandled promise rejections
             window.addEventListener('unhandledrejection', (event) => {
-              window.parent.postMessage({
-                type: 'console',
-                method: 'error',
-                message: \`Unhandled Promise Rejection: \${event.reason}\`,
-                args: [event.reason]
-              }, '*');
+              if (isCapturing) return;
+              
+              try {
+                isCapturing = true;
+                window.parent.postMessage({
+                  type: 'console',
+                  method: 'error',
+                  message: \`Unhandled Promise Rejection: \${event.reason}\`,
+                  args: [event.reason]
+                }, '*');
+                isCapturing = false;
+              } catch {
+                isCapturing = false;
+              }
             });
           })();
         `
@@ -128,7 +175,8 @@ export function useIframeConsole(
           target.insertBefore(script, target.firstChild)
         }
       } catch (error) {
-        console.error('Failed to inject console capture:', error)
+        // Silently fail to prevent console recursion
+        // Don't log this error as it could cause more recursion
       }
     }
 
