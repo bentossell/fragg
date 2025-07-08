@@ -146,7 +146,7 @@ export function NavBar({
             <DropdownMenuItem
               onClick={() => {
                 window
-                  .open('https://github.com/e2b-dev/fragments', '_blank')
+                  .open('https://github.com/bentossell/fragg', '_blank')
                   ?.focus()
                 onSocialClick('github')
               }}
@@ -165,7 +165,7 @@ export function NavBar({
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {
-                window.open('https://x.com/e2b_dev', '_blank')?.focus()
+                window.open('https://x.com/fragg_app', '_blank')?.focus()
                 onSocialClick('x')
               }}
             >

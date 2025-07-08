@@ -379,7 +379,7 @@ function generateUnsupportedTemplateHTML(template: string): string {
         <div class="message-container">
           <h2>Browser preview is not available</h2>
           <p>The <span class="template-name">${template}</span> template requires a server environment and cannot be previewed in the browser.</p>
-          <p>This template will use the E2B sandbox for execution.</p>
+          <p>This template now runs instantly in the browser.</p>
         </div>
       </body>
     </html>

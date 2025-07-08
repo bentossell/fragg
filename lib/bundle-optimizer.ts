@@ -243,7 +243,7 @@ export class BundleOptimizer {
       
       // DNS prefetch for external resources
       '<link rel="dns-prefetch" href="//openrouter.ai">',
-      '<link rel="dns-prefetch" href="//api.e2b.dev">',
+      '<link rel="dns-prefetch" href="//fragg.app">',
       
       // Preconnect to critical origins
       '<link rel="preconnect" href="//fonts.googleapis.com" crossorigin>',

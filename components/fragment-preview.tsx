@@ -1,7 +1,4 @@
 'use client'
-
-import { FragmentInterpreter } from './fragment-interpreter'
-import { FragmentWeb } from './fragment-web'
 import { ExecutionResult } from '@/lib/types'
 import { useState, useEffect, Suspense } from 'react'
 import { selectSandbox, getSandboxComponent } from '@/lib/sandbox-router'
@@ -85,14 +82,6 @@ export function FragmentPreview({ result, fragment, userId }: FragmentPreviewPro
     }
   }, [fragment, result])
 
-  // If we have a result (sandbox already created), use the appropriate viewer
-  if (result) {
-    if (result.template === 'code-interpreter-v1') {
-      return <FragmentInterpreter result={result} />
-    }
-    return <FragmentWeb result={result} />
-  }
-
   // If no fragment, show loading state
   if (!fragment || !fragment.code) {
     return (
@@ -129,7 +118,6 @@ export function FragmentPreview({ result, fragment, userId }: FragmentPreviewPro
             {sandboxType === 'browser' && '🌐 Browser Preview'}
             {sandboxType === 'sandpack' && '📦 Sandpack Preview'}
             {sandboxType === 'instant' && '⚡ Instant Preview'}
-            {sandboxType === 'e2b' && '🖥️ Sandbox Preview'}
           </span>
         </div>
         <div className="flex-1">

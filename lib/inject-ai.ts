@@ -8,15 +8,6 @@ export function injectAI(code: string, template: string, filePath?: string, apiK
       return code + '\n\n// AI capabilities available via window.AI (loaded in HTML head)'
     }
     
-    // Detect file type and inject accordingly
-    if (template === 'streamlit-developer' || template === 'gradio-developer') {
-      return injectAIForPython(code, template, apiKey)
-    }
-    
-    if (template === 'code-interpreter-v1') {
-      return code + '\n\n# Note: AI capabilities are available in the web interface'
-    }
-    
     // For HTML files or when we can't detect the type safely
     return injectAIForHTML(code, template, apiKey)
     
@@ -42,8 +33,8 @@ function injectAIForHTML(code: string, template: string, apiKey?: string): strin
                 headers: {
                   'Authorization': 'Bearer ${openRouterKey}',
                   'Content-Type': 'application/json',
-                  'HTTP-Referer': 'https://fragments.e2b.dev',
-                  'X-Title': 'E2B Fragments - Generated App'
+                  'HTTP-Referer': 'https://fragg.app',
+                  'X-Title': 'Fragg - Generated App'
                 },
                 body: JSON.stringify({
                   messages: Array.isArray(messages) ? messages : [{ role: 'user', content: messages }],
@@ -112,143 +103,4 @@ function injectAIForHTML(code: string, template: string, apiKey?: string): strin
   
   // Last resort: add as comment
   return code + '\n\n<!-- AI capabilities: window.AI object will be available -->'
-}
-
-function injectAIForPython(code: string, template: string, apiKey?: string): string {
-  const openRouterKey = apiKey || process.env.OPENROUTER_API_KEY || 'YOUR_API_KEY_HERE';
-  
-  if (template === 'streamlit-developer') {
-    const aiScript = `
-    <script>
-      window.AI = {
-        async chat(messages, options = {}) {
-          try {
-            const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                'Authorization': 'Bearer ${openRouterKey}',
-                'Content-Type': 'application/json',
-                'HTTP-Referer': 'https://fragments.e2b.dev',
-                'X-Title': 'E2B Fragments - Streamlit App'
-              },
-              body: JSON.stringify({
-                messages: Array.isArray(messages) ? messages : [{ role: 'user', content: messages }],
-                model: options.model || 'google/gemini-2.5-flash-lite-preview-06-17',
-                stream: options.stream || false,
-                max_tokens: options.max_tokens || 1000
-              })
-            });
-            
-            if (!response.ok) {
-              throw new Error('AI request failed: ' + response.status);
-            }
-            
-            const data = await response.json();
-            return data.choices[0].message.content;
-          } catch (error) {
-            console.error('AI Error:', error);
-            throw error;
-          }
-        },
-        
-        async ask(prompt, model = 'google/gemini-2.5-flash-lite-preview-06-17') {
-          return this.chat([{ role: 'user', content: prompt }], { model });
-        },
-        
-        models: {
-          fast: 'google/gemini-2.5-flash-lite-preview-06-17',
-          balanced: 'google/gemini-2.5-flash-lite-preview-06-17',
-          powerful: 'google/gemini-2.5-flash-lite-preview-06-17',
-          cheap: 'deepseek/deepseek-chat:free',
-          turbo: 'google/gemini-2.5-flash'
-        }
-      };
-      
-      console.log('🤖 AI capabilities loaded!');
-      console.log('Usage: await window.AI.ask("your question")');
-      console.log('Available models:', window.AI.models);
-    </script>
-  `
-    const escapedScript = aiScript.replace(/'/g, "\\'").replace(/\n/g, '').replace(/\s+/g, ' ')
-    return code + `\n\n# AI capabilities\nimport streamlit.components.v1 as components\ncomponents.html('${escapedScript}', height=0)`
-  }
-  
-  if (template === 'gradio-developer') {
-    // For Gradio, inject a proper Python function that calls OpenRouter directly
-    const aiHelperCode = `
-
-# AI Helper Functions
-import requests
-import json
-
-def ai_ask(prompt, model="google/gemini-2.5-flash-lite-preview-06-17"):
-    """Ask AI a question and get a response."""
-    try:
-        response = requests.post('https://openrouter.ai/api/v1/chat/completions', 
-            headers={
-                'Authorization': 'Bearer ${openRouterKey}',
-                'Content-Type': 'application/json',
-                'HTTP-Referer': 'https://fragments.e2b.dev',
-                'X-Title': 'E2B Fragments - Gradio App'
-            },
-            json={
-                'messages': [{'role': 'user', 'content': prompt}],
-                'model': model,
-                'stream': False,
-                'max_tokens': 1000
-            }
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            return data.get('choices', [{}])[0].get('message', {}).get('content', 'No response')
-        else:
-            return f"AI Error: {response.status_code} - {response.text}"
-    except Exception as e:
-        return f"AI Error: {str(e)}"
-
-def ai_chat(messages, model="google/gemini-2.5-flash-lite-preview-06-17"):
-    """Chat with AI using a list of messages."""
-    try:
-        response = requests.post('https://openrouter.ai/api/v1/chat/completions',
-            headers={
-                'Authorization': 'Bearer ${openRouterKey}',
-                'Content-Type': 'application/json',
-                'HTTP-Referer': 'https://fragments.e2b.dev',
-                'X-Title': 'E2B Fragments - Gradio App'
-            },
-            json={
-                'messages': messages,
-                'model': model,
-                'stream': False,
-                'max_tokens': 1000
-            }
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            return data.get('choices', [{}])[0].get('message', {}).get('content', 'No response')
-        else:
-            return f"AI Error: {response.status_code} - {response.text}"
-    except Exception as e:
-        return f"AI Error: {str(e)}"
-
-# Available AI models
-AI_MODELS = {
-    'fast': 'google/gemini-2.5-flash-lite-preview-06-17',
-    'balanced': 'google/gemini-2.5-flash-lite-preview-06-17', 
-    'powerful': 'google/gemini-2.5-flash-lite-preview-06-17',
-    'cheap': 'deepseek/deepseek-chat:free',
-    'turbo': 'google/gemini-2.5-flash'
-}
-
-print("🤖 AI capabilities loaded!")
-print("Usage: ai_ask('your question') or ai_chat([{'role': 'user', 'content': 'hello'}])")
-print("Available models:", list(AI_MODELS.keys()))
-`
-    return code + aiHelperCode
-  }
-  
-  // Generic Python - add as comment
-  return code + `\n\n# AI capabilities available in web interface`
 }

@@ -1,17 +1,4 @@
 {
-  "code-interpreter-v1": {
-    "id": "code-interpreter-v1",
-    "name": "Python data analyst",
-    "description": "Runs code as a Jupyter notebook cell. Strong data analysis angle. Can use complex visualisation to explain results.",
-    "icon": "python",
-    "start_cmd": "echo 'Code interpreter does not have a start command.'",
-    "tags": ["python", "jupyter", "numpy", "pandas", "matplotlib", "seaborn", "plotly"],
-    "lib": ["python", "jupyter", "numpy", "pandas", "matplotlib", "seaborn", "plotly"],
-    "file": "script.py",
-    "instructions": "Runs code as a Jupyter notebook cell. Strong data analysis angle. Can use complex visualisation to explain results.",
-    "port": null
-  },
-
   "nextjs-developer": {
     "id": "nextjs-developer",
     "name": "Next.js developer",
@@ -36,44 +23,16 @@
     "instructions": "A Vue.js 3+ app that reloads automatically. Only when asked specifically for a Vue app.",
     "port": 3000
   },
-  "streamlit-developer": {
-    "id": "streamlit-developer",
-    "name": "Streamlit developer",
-    "description": "A streamlit app that reloads automatically.",
-    "icon": "streamlit",
-    "start_cmd": "streamlit run app.py",
-    "tags": ["streamlit", "python", "pandas", "numpy"],
-    "lib": [
-      "streamlit",
-      "pandas",
-      "numpy",
-      "matplotlib",
-      "requests",
-      "seaborn",
-      "plotly"
-    ],
-    "file": "app.py",
-    "instructions": "A streamlit app that reloads automatically.",
-    "port": 8501
-  },
-  "gradio-developer": {
-    "id": "gradio-developer",
-    "name": "Gradio developer",
-    "description": "A gradio app. Gradio Blocks/Interface should be called demo.",
-    "icon": "gradio",
-    "start_cmd": "python app.py",
-    "tags": ["gradio", "python", "machine-learning"],
-    "lib": [
-      "gradio",
-      "pandas",
-      "numpy",
-      "matplotlib",
-      "requests",
-      "seaborn",
-      "plotly"
-    ],
-    "file": "app.py",
-    "instructions": "A gradio app. Gradio Blocks/Interface should be called demo.",
-    "port": 7860
+  "static-html": {
+    "id": "static-html",
+    "name": "Static HTML site",
+    "description": "Plain HTML/CSS/JS site served as-is. No build step required.",
+    "icon": "html",
+    "start_cmd": "npx serve -s .",
+    "tags": ["html", "css", "javascript"],
+    "lib": [],
+    "file": "index.html",
+    "instructions": "A simple HTML/CSS/JS website that can be previewed instantly.",
+    "port": 3000
   }
 }

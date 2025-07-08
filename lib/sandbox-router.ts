@@ -10,7 +10,7 @@
 
 import { Fragment, lazy } from 'react';
 import { shouldUseBrowserPreview, templateSupportsBrowserPreview } from '@/lib/feature-flags';
-import { TemplateId, templateRequiresSandbox } from '@/lib/templates';
+import { TemplateId } from '@/lib/templates';
 import { FragmentSchema } from '@/lib/schema';
 import { shouldUseSandpack } from '@/components/sandpack-preview';
 
@@ -18,7 +18,6 @@ import { shouldUseSandpack } from '@/components/sandpack-preview';
 const WebContainerPreview = lazy(() => import('@/components/webcontainer-preview').then(mod => ({ default: mod.WebContainerPreview })));
 const BrowserPreview = lazy(() => import('@/components/browser-preview').then(mod => ({ default: mod })));
 const SandpackPreview = lazy(() => import('@/components/sandpack-preview').then(mod => ({ default: mod.SandpackPreview })));
-const FragmentWeb = lazy(() => import('@/components/fragment-web').then(mod => ({ default: mod.FragmentWeb })));
 const InstantPreview = lazy(() => import('@/components/instant-preview-v2').then(mod => ({ default: mod })));
 
 // Sandbox type enum
@@ -26,7 +25,6 @@ export type SandboxType =
   | 'webcontainer'  // WebContainers - Node.js in browser (fast)
   | 'browser'       // Browser Preview - simple HTML/JS/CSS preview (fastest)
   | 'sandpack'      // Sandpack - CodeSandbox integration (good for complex frontend)
-  | 'e2b'           // E2B - Server-side sandbox (good for Python/backend)
   | 'instant'       // Instant Preview - CDN-based preview (very fast but limited)
   | 'legacy';       // Legacy - use the old decision tree
 
@@ -55,12 +53,6 @@ export function selectSandbox(
   
   // 1. Check WebContainers MVP flag - this is the main switch for the new system
   const webcontainersMvpEnabled = process.env.NEXT_PUBLIC_WEBCONTAINERS_MVP === 'true';
-  
-  // 2. If Python/backend template, always use E2B for now
-  // WebContainers doesn't support Python yet
-  if (templateRequiresSandbox(templateId)) {
-    return 'e2b';
-  }
   
   // If WebContainers MVP is enabled, use the new decision tree
   if (webcontainersMvpEnabled) {
@@ -91,8 +83,8 @@ export function selectSandbox(
     return 'instant';
   }
   
-  // 8. Default to E2B for everything else
-  return 'e2b';
+  // 8. Default to WebContainers for everything else
+  return 'webcontainer';
 }
 
 /**
@@ -103,7 +95,6 @@ export const SandboxComponents = {
   webcontainer: WebContainerPreview,
   browser: BrowserPreview,
   sandpack: SandpackPreview,
-  e2b: FragmentWeb,
   instant: InstantPreview,
   legacy: Fragment // Fragment is a placeholder, legacy will use existing logic
 };
