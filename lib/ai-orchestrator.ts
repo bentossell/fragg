@@ -9,7 +9,8 @@ import { componentLibrary } from './component-library'
 import { CodeDiffer, DiffContext, CodeDiff } from './code-differ'
 import { smartPromptEngine, EnhancedPromptResult } from './smart-prompt-engineering'
 import { advancedContextManager, SmartContextResult, ContextualMemory } from './advanced-context-management'
-import { openrouter, models } from './ai-config'
+import { openrouter, models, diffGenerationModel, planningModel } from './ai-config'
+import { generateText } from 'ai'
 
 export interface GenerationResult {
   code: string
@@ -463,27 +464,15 @@ export class CodeOrchestrator {
   // Helper method to call AI for diffs
   private async callAIForDiffs(prompt: string): Promise<string> {
     try {
-      // Use the same API endpoint as the main chat for consistency
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: prompt }],
-                     model: models.diffGeneration, // Use Gemini 2.5 Flash Lite for diffs
-          temperature: 0.2, // Lower temperature for more precise diffs
-          maxTokens: 2000,
-          stream: false
-        })
+      // Use direct OpenRouter client instead of fetch to avoid "Invalid URL" errors
+      const result = await generateText({
+        model: diffGenerationModel(), // Use Gemini 2.5 Flash Lite for diffs
+        prompt,
+        temperature: 0.2, // Lower temperature for more precise diffs
+        maxTokens: 2000,
       })
 
-      if (!response.ok) {
-        throw new Error(`Diff API call failed: ${response.status}`)
-      }
-
-      const data = await response.json()
-      return data.content || data.message || ''
+      return result.text || ''
     } catch (error) {
       console.error('AI diff call failed:', error)
       return ''
@@ -501,27 +490,15 @@ export class CodeOrchestrator {
     const fallbackPrompt = CodeDiffer.createFallbackPrompt(userPrompt, existingCode, language)
     
     try {
-      // Use the same API endpoint as the main chat for consistency
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: fallbackPrompt }],
-                     model: models.planning, // Use Claude 4 Sonnet for planning/complex tasks
-          temperature: 0.3,
-          maxTokens: 4000,
-          stream: false
-        })
+      // Use direct OpenRouter client instead of fetch to avoid "Invalid URL" errors
+      const result = await generateText({
+        model: planningModel(), // Use Claude 4 Sonnet for planning/complex tasks
+        prompt: fallbackPrompt,
+        temperature: 0.3,
+        maxTokens: 4000,
       })
 
-      if (!response.ok) {
-        throw new Error(`Fallback API call failed: ${response.status}`)
-      }
-
-      const data = await response.json()
-      const code = this.cleanGeneratedCode(data.content || data.message || '')
+      const code = this.cleanGeneratedCode(result.text || '')
       this.storeLastGeneratedCode(code)
       
       const executionTime = Date.now() - startTime

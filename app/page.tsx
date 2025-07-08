@@ -260,29 +260,107 @@ const EnhancedApp = memo(function EnhancedApp() {
   const initializeSystems = useCallback(async (appId: string) => {
     if (systemsInitialized.current) return
 
+    // Prevent race conditions by setting initialized flag early
+    systemsInitialized.current = true
+
     try {
+      // Initialize systems with better error handling
       const versionSystem = new EnhancedVersionSystem(appId)
       const conversationalSystem = new ConversationalModificationSystem()
       const changeManager = new ChangeManagementSystem(appId)
       const appLibrary = new AppLibrary()
 
+      // Verify systems are properly initialized
+      if (!versionSystem) {
+        throw new Error('Version system failed to initialize')
+      }
+      if (!conversationalSystem) {
+        throw new Error('Conversational system failed to initialize')
+      }
+      if (!changeManager) {
+        throw new Error('Change manager failed to initialize')
+      }
+      if (!appLibrary) {
+        throw new Error('App library failed to initialize')
+      }
+
+      // Load existing versions if available
+      let existingVersions: AppVersion[] = []
+      try {
+        existingVersions = versionSystem.getVersions()
+      } catch (error) {
+        console.warn('Failed to load existing versions:', error)
+      }
+
+      // Load existing changes if available
+      let existingChanges: ChangeRecord[] = []
+      try {
+        existingChanges = changeManager.getRecentChanges()
+      } catch (error) {
+        console.warn('Failed to load existing changes:', error)
+      }
+
+      // Update system state atomically
       setSystemState(prev => ({
         ...prev,
         versionSystem,
         diffSystem: null, // Diff system is now server-side only
         conversationalSystem,
         changeManager,
-        appLibrary
+        appLibrary,
+        versions: existingVersions,
+        changes: existingChanges
       }))
 
-      systemsInitialized.current = true
+      if (process.env.NODE_ENV === 'development') {
+        console.log('✅ Systems initialized successfully:', {
+          appId,
+          versionSystem: !!versionSystem,
+          conversationalSystem: !!conversationalSystem,
+          changeManager: !!changeManager,
+          appLibrary: !!appLibrary,
+          existingVersions: existingVersions.length,
+          existingChanges: existingChanges.length
+        })
+      }
+
     } catch (error) {
-      console.error('Failed to initialize systems:', error)
+      console.error('❌ Failed to initialize systems:', error)
+      
+      // Reset initialized flag on failure so we can retry
+      systemsInitialized.current = false
+      
+      // Provide more specific error messages
+      let errorMessage = 'System initialization failed'
+      if (error instanceof Error) {
+        if (error.message.includes('Version system')) {
+          errorMessage = 'Version tracking system failed to initialize'
+        } else if (error.message.includes('Conversational system')) {
+          errorMessage = 'Chat system failed to initialize'
+        } else if (error.message.includes('Change manager')) {
+          errorMessage = 'Change management system failed to initialize'
+        } else if (error.message.includes('App library')) {
+          errorMessage = 'App library system failed to initialize'
+        }
+      }
+      
       toast({
         title: 'System initialization failed',
-        description: 'Some features may not work properly. Please refresh the page.',
+        description: `${errorMessage}. Some features may not work properly. Please refresh the page.`,
         variant: 'destructive'
       })
+
+      // Set partial state for graceful degradation
+      setSystemState(prev => ({
+        ...prev,
+        versionSystem: null,
+        diffSystem: null,
+        conversationalSystem: null,
+        changeManager: null,
+        appLibrary: null,
+        versions: [],
+        changes: []
+      }))
     }
   }, [])
 
@@ -1171,28 +1249,55 @@ const EnhancedApp = memo(function EnhancedApp() {
           }
         }))
 
-        // Create version if version system is available
-        if (systemState.versionSystem && parsedCode) {
+        // Handle version creation (server-side already created it, we just need to sync)
+        if (result.versionId && systemState.versionSystem) {
           try {
-            const version = systemState.versionSystem.createVersion(
-              parsedCode,
-              `Incremental update: ${prompt.substring(0, 50)}`,
-              prompt,
-              'user',
-              ['diff-update', 'incremental']
-            )
-            
-            setSystemState(prev => ({
-              ...prev,
-              versions: [...prev.versions, version]
-            }))
+            // Sync with server-side version by loading it into our local state
+            const serverVersion = systemState.versionSystem.getVersion(result.versionId)
+            if (serverVersion) {
+              // Update local versions list if the version exists
+              setSystemState(prev => ({
+                ...prev,
+                versions: prev.versions.some(v => v.id === result.versionId) 
+                  ? prev.versions 
+                  : [...prev.versions, serverVersion]
+              }))
+            } else {
+              // If version doesn't exist locally, create a local version for consistency
+              // This handles the case where the server created a version but we need it locally
+              const localVersion = systemState.versionSystem.createVersion(
+                parsedCode,
+                `Incremental update: ${prompt.substring(0, 50)}`,
+                prompt,
+                'user',
+                ['diff-update', 'incremental', 'server-sync']
+              )
+              
+              setSystemState(prev => ({
+                ...prev,
+                versions: [...prev.versions, localVersion]
+              }))
+            }
             
             if (process.env.NODE_ENV === 'development') {
-              console.log('📦 Created version for diff update:', version.metadata.message)
+              console.log('📦 Version synced for diff update:', result.versionId)
             }
           } catch (versionError) {
-            console.error('Failed to create version for diff update:', versionError)
+            console.error('Failed to sync version for diff update:', versionError)
+            // Don't fail the entire diff update if version sync fails
+            toast({
+              title: 'Version sync warning',
+              description: 'Changes applied successfully, but version tracking may be incomplete.',
+              variant: 'destructive'
+            })
           }
+        } else if (result.versionId && !systemState.versionSystem) {
+          // Version system not initialized, but server created a version
+          console.warn('Server created version but client version system not initialized:', result.versionId)
+          toast({
+            title: 'Version system not ready',
+            description: 'Changes applied successfully, but version tracking is not available.',
+          })
         }
 
         // Update sandbox/preview
@@ -1271,11 +1376,11 @@ const EnhancedApp = memo(function EnhancedApp() {
         
         toast({
           title: 'Incremental update successful!',
-          description: `Applied changes: ${result.diffResult?.changes.length || 0} modifications`,
+          description: `Applied changes: ${result.diffResult?.changes.length || 0} modifications${result.versionId ? ` (Version: ${result.versionId.substring(0, 8)}...)` : ''}`,
         })
         
       } else {
-        throw new Error(result.errors.join(', ') || 'Diff update failed')
+        throw new Error(result.errors?.join(', ') || 'Diff update failed')
       }
     } catch (error) {
       console.error('Diff update error:', error)

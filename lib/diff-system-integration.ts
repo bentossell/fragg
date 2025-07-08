@@ -104,13 +104,27 @@ export class DiffSystemIntegration {
       ...options
     }
 
-    this.updateSystem = new IncrementalUpdateSystem(appId)
-    this.aiOrchestrator = new AIDiffOrchestrator(appId)
-    this.changeManager = new ChangeManagementSystem(appId)
-    this.versionSystem = new EnhancedVersionSystem(appId)
-    
-    this.metrics = this.initializeMetrics()
-    this.initializeSystem()
+    try {
+      this.updateSystem = new IncrementalUpdateSystem(appId)
+      this.aiOrchestrator = new AIDiffOrchestrator(appId)
+      this.changeManager = new ChangeManagementSystem(appId)
+      
+      // Initialize version system with error handling
+      if (this.systemOptions.enableVersionTracking) {
+        try {
+          this.versionSystem = new EnhancedVersionSystem(appId)
+        } catch (error) {
+          console.warn('Version system initialization failed:', error)
+          this.systemOptions.enableVersionTracking = false // Disable if initialization fails
+        }
+      }
+      
+      this.metrics = this.initializeMetrics()
+      this.initializeSystem()
+    } catch (error) {
+      console.error('Failed to initialize diff system:', error)
+      throw new Error(`Diff system initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
   }
 
   /**
@@ -300,16 +314,21 @@ export class DiffSystemIntegration {
         )
 
         if (executionResult.success) {
-          // Create version if enabled
-          if (this.systemOptions.enableVersionTracking) {
-            const version = this.versionSystem.createVersion(
-              diffResult.previewCode,
-              changeRecord?.title || 'Diff-based update',
-              changeRecord?.description || request.userPrompt,
-              request.author || 'system',
-              ['diff-update', ...(request.tags || [])]
-            )
-            versionId = version.id
+          // Create version if enabled and version system is available
+          if (this.systemOptions.enableVersionTracking && this.versionSystem) {
+            try {
+              const version = this.versionSystem.createVersion(
+                diffResult.previewCode,
+                changeRecord?.title || 'Diff-based update',
+                changeRecord?.description || request.userPrompt,
+                request.author || 'system',
+                ['diff-update', ...(request.tags || [])]
+              )
+              versionId = version.id
+            } catch (error) {
+              console.warn('Version creation failed:', error)
+              warnings.push('Version tracking failed, but changes were applied successfully')
+            }
           }
 
           previewCode = diffResult.previewCode
