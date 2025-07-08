@@ -44,6 +44,9 @@ function generateHTMLContent(code: string, template: TemplateId): string {
 }
 
 function generateReactHTML(code: string): string {
+  // Preprocess the code to handle ES6 module syntax
+  const processedCode = preprocessReactCode(code)
+  
   return `
     <!DOCTYPE html>
     <html>
@@ -64,7 +67,7 @@ function generateReactHTML(code: string): string {
         <div id="root"></div>
         <script type="text/babel">
           try {
-            ${code}
+            ${processedCode}
             
             // Auto-detect and render the main component
             const componentNames = ['App', 'Component', 'Main', 'Page']
@@ -88,6 +91,63 @@ function generateReactHTML(code: string): string {
       </body>
     </html>
   `
+}
+
+// Helper function to preprocess React code and handle ES6 modules
+function preprocessReactCode(code: string): string {
+  let processedCode = code
+  
+  // Handle export default statements
+  const exportDefaultMatch = processedCode.match(/export\s+default\s+(\w+)/g)
+  if (exportDefaultMatch) {
+    exportDefaultMatch.forEach(match => {
+      // Extract the component name from "export default ComponentName"
+      const componentName = match.replace(/export\s+default\s+/, '')
+      // Remove the export statement and make the component available globally
+      processedCode = processedCode.replace(match, `window.${componentName} = ${componentName}`)
+    })
+  }
+  
+  // Handle named exports like "export { App }"
+  const namedExportMatch = processedCode.match(/export\s*{\s*([^}]+)\s*}/g)
+  if (namedExportMatch) {
+    namedExportMatch.forEach(match => {
+      const exportContent = match.replace(/export\s*{\s*|\s*}/g, '')
+      const exportNames = exportContent.split(',').map(name => name.trim())
+      
+      // Make each exported component available globally
+      const globalAssignments = exportNames.map(name => `window.${name} = ${name}`).join('; ')
+      processedCode = processedCode.replace(match, globalAssignments)
+    })
+  }
+  
+  // Handle export function declarations like "export function App() {}"
+  const exportFunctionMatch = processedCode.match(/export\s+function\s+(\w+)/g)
+  if (exportFunctionMatch) {
+    exportFunctionMatch.forEach(match => {
+      const functionName = match.replace(/export\s+function\s+/, '')
+      // Remove export and add global assignment after function
+      processedCode = processedCode.replace(/export\s+function\s+/, 'function ')
+      processedCode = processedCode + `\nwindow.${functionName} = ${functionName}`
+    })
+  }
+  
+  // Handle export const declarations like "export const App = () => {}"
+  const exportConstMatch = processedCode.match(/export\s+const\s+(\w+)/g)
+  if (exportConstMatch) {
+    exportConstMatch.forEach(match => {
+      const constName = match.replace(/export\s+const\s+/, '')
+      // Remove export and add global assignment
+      processedCode = processedCode.replace(/export\s+const\s+/, 'const ')
+      processedCode = processedCode + `\nwindow.${constName} = ${constName}`
+    })
+  }
+  
+  // Remove any remaining import statements (they won't work in browser anyway)
+  processedCode = processedCode.replace(/import\s+.*?from\s+['"][^'"]*['"];?/g, '')
+  processedCode = processedCode.replace(/import\s+['"][^'"]*['"];?/g, '')
+  
+  return processedCode
 }
 
 function generateVueHTML(code: string): string {

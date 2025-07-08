@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense, memo } from 'react'
 import { usePostHog } from 'posthog-js/react'
-import { useLocalStorage } from 'usehooks-ts'
 import { experimental_useObject as useObject } from 'ai/react'
 import { useQueryState, parseAsString } from 'nuqs'
 import { useIsMobile, useIsDesktop } from '@/lib/hooks/use-media-query'
@@ -217,10 +216,29 @@ const EnhancedApp = memo(function EnhancedApp() {
   })
 
   // Persistent state
-  const [languageModel, setLanguageModel] = useLocalStorage<LLMModelConfig>(
-    'languageModel',
-    { model: 'anthropic/claude-sonnet-4' }
-  )
+  const [languageModel, setLanguageModel] = useState<LLMModelConfig>({ model: 'anthropic/claude-sonnet-4' })
+  const [isHydrated, setIsHydrated] = useState(false)
+
+  // Load language model from localStorage after hydration
+  useEffect(() => {
+    const stored = localStorage.getItem('languageModel')
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored)
+        setLanguageModel(parsed)
+      } catch (error) {
+        console.error('Failed to parse stored language model:', error)
+      }
+    }
+    setIsHydrated(true)
+  }, [])
+
+  // Save language model to localStorage when it changes (but only after hydration)
+  useEffect(() => {
+    if (isHydrated) {
+      localStorage.setItem('languageModel', JSON.stringify(languageModel))
+    }
+  }, [languageModel, isHydrated])
 
   // Input state
   const [input, setInput] = useState('')
@@ -1046,8 +1064,8 @@ const EnhancedApp = memo(function EnhancedApp() {
         messages: toAISDKMessages(updatedMessages),
         userID: 'user',
         template: appState.selectedTemplate,
-        model: languageModel.model,
-        config: currentModel,
+        model: currentModel,
+        config: languageModel,
       })
       console.log('✅ Submit call completed successfully')
     } catch (error) {

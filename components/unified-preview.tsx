@@ -40,6 +40,8 @@ import {
   Minimize2,
   Monitor
 } from 'lucide-react'
+import { shouldUseBrowserPreview, templateSupportsBrowserPreview } from '@/lib/feature-flags'
+import type { TemplateId } from '@/lib/templates'
 
 interface FragmentVersion {
   fragment: DeepPartial<FragmentSchema>
@@ -247,6 +249,11 @@ export function UnifiedPreview({
   
   // Suppress unused variable warning
   void handleSandboxRefresh
+  
+  // Determine if preview should be enabled
+  const canShowPreview = !!result || (
+    fragment && shouldUseBrowserPreview(userId) && templateSupportsBrowserPreview(fragment.template as TemplateId)
+  );
   
   if (!fragment && !isGenerating && !isLoading) {
     return null
@@ -480,7 +487,7 @@ export function UnifiedPreview({
                   )}
                 </TabsTrigger>
                 <TabsTrigger
-                  disabled={!result}
+                  disabled={!canShowPreview}
                   className="font-normal text-xs py-1 px-2 gap-1 flex items-center"
                   value="fragment"
                 >
@@ -650,9 +657,9 @@ export function UnifiedPreview({
               )}
             </TabsContent>
             <TabsContent value="fragment" className="h-full m-0">
-              {result ? (
+              {fragment ? (
                 <FragmentPreview 
-                  result={result as ExecutionResult} 
+                  result={result || undefined} 
                   fragment={fragment ? {
                     code: fragment.code || '',
                     template: fragment.template || template || 'nextjs-developer',
@@ -669,11 +676,6 @@ export function UnifiedPreview({
                     <p className="text-sm text-muted-foreground">
                       {isPreviewLoading ? 'Creating preview...' : 'No preview available'}
                     </p>
-                    {fragment?.code && !result && (
-                      <p className="text-xs text-muted-foreground mt-2">
-                        Code generated, creating sandbox...
-                      </p>
-                    )}
                   </div>
                 </div>
               )}

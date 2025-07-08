@@ -97,7 +97,7 @@ NEXT_PUBLIC_BROWSER_PREVIEW_ROLLOUT=25
 
 ### Test Pages
 - **Test Browser Preview**: http://localhost:3000/test-browser-preview
-- **Main App**: http://localhost:3000 (with feature flag)
+- **Main App**: http://localhost:3000 
 
 ## Key Features
 

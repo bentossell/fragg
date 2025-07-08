@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useLocalStorage } from 'usehooks-ts'
 import { cn } from '@/lib/utils'
 import { Button } from './ui/button'
 import { 
@@ -58,19 +57,39 @@ export function DualPanelLayout({
   showPanelControls = true,
   isMobile = false,
 }: DualPanelLayoutProps) {
-  const [splitPosition, setSplitPosition] = useLocalStorage('dual-panel-split', defaultSplit)
+  const [splitPosition, setSplitPosition] = useState(defaultSplit)
+  const [isHydrated, setIsHydrated] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [isLeftMaximized, setIsLeftMaximized] = useState(false)
   const [isRightMaximized, setIsRightMaximized] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const splitterRef = useRef<HTMLDivElement>(null)
   
+  // Load from localStorage after hydration to prevent hydration mismatch
+  useEffect(() => {
+    const stored = localStorage.getItem('dual-panel-split')
+    if (stored) {
+      const parsedSplit = parseFloat(stored)
+      if (!isNaN(parsedSplit)) {
+        setSplitPosition(parsedSplit)
+      }
+    }
+    setIsHydrated(true)
+  }, [])
+
+  // Save to localStorage when splitPosition changes (but only after hydration)
+  useEffect(() => {
+    if (isHydrated) {
+      localStorage.setItem('dual-panel-split', splitPosition.toString())
+    }
+  }, [splitPosition, isHydrated])
+  
   // Handle split position changes
   const handleSplitChange = useCallback((newSplit: number) => {
     const clampedSplit = Math.max(minPanelSize, Math.min(100 - minPanelSize, newSplit))
     setSplitPosition(clampedSplit)
     onSplitChange?.(clampedSplit)
-  }, [minPanelSize, onSplitChange, setSplitPosition])
+  }, [minPanelSize, onSplitChange])
 
   // Mouse/touch handlers for dragging
   const startDragging = useCallback((e: React.MouseEvent | React.TouchEvent) => {

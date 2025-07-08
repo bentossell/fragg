@@ -67,3 +67,27 @@ The system works automatically. When you:
 - `/app/page.tsx` - Releases apps instead of killing sandboxes
 
 This creates the "instant app" experience you wanted - apps load in milliseconds, not seconds!
+
+## Browser Preview Fix (Fixed)
+
+### Issue
+- "Sandbox not found" error appearing when trying to preview apps
+- Browser preview system was not working correctly
+
+### Root Cause
+When browser preview was enabled, the code was creating a mock `result` object without a `url` property. This caused `FragmentWeb` component to show the "Sandbox not found" error.
+
+### Solution
+Simple fix: When browser preview is enabled, don't create any result object (`result = null`). This allows `FragmentPreview` to properly detect and use browser preview.
+
+### Changes Made
+1. **app/page.tsx**
+   - Fixed `handleGenerationComplete` to set `result = null` for browser preview
+   - Fixed `handleForkApp` to also set `result = null` for browser preview
+   - Updated `handleAutoSave` to handle null results properly
+
+### Result
+✅ Browser preview now works correctly
+✅ No more "Sandbox not found" errors
+✅ Instant preview rendering without E2B sandbox
+✅ Timer apps and other supported templates render immediately
