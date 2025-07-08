@@ -20,7 +20,6 @@ import { Message, toAISDKMessages } from '@/lib/messages'
 
 // New system imports
 import { EnhancedVersionSystem, AppVersion, VersionTree } from '@/lib/storage/enhanced-version-system'
-import { DiffSystemIntegration, DiffUpdateRequest, DiffUpdateResult } from '@/lib/diff-system-integration'
 import { ConversationalModificationSystem, ConversationResponse } from '@/lib/conversational-modification-system'
 import { ChangeManagementSystem, ChangeRecord } from '@/lib/change-management-system'
 import { AppLibrary, SavedApp } from '@/lib/storage/app-library'
@@ -130,7 +129,7 @@ interface UIState {
 
 interface SystemState {
   versionSystem: EnhancedVersionSystem | null
-  diffSystem: DiffSystemIntegration | null
+  diffSystem: null // Diff system is now server-side only
   conversationalSystem: ConversationalModificationSystem | null
   changeManager: ChangeManagementSystem | null
   appLibrary: AppLibrary | null
@@ -263,14 +262,6 @@ const EnhancedApp = memo(function EnhancedApp() {
 
     try {
       const versionSystem = new EnhancedVersionSystem(appId)
-      const diffSystem = new DiffSystemIntegration(appId, {
-        enableAI: true,
-        enableChangeManagement: true,
-        enableVersionTracking: true,
-        autoApproval: false,
-        conflictResolution: 'auto',
-        diffMode: 'ai-assisted'
-      })
       const conversationalSystem = new ConversationalModificationSystem()
       const changeManager = new ChangeManagementSystem(appId)
       const appLibrary = new AppLibrary()
@@ -278,7 +269,7 @@ const EnhancedApp = memo(function EnhancedApp() {
       setSystemState(prev => ({
         ...prev,
         versionSystem,
-        diffSystem,
+        diffSystem: null, // Diff system is now server-side only
         conversationalSystem,
         changeManager,
         appLibrary
@@ -1095,7 +1086,7 @@ const EnhancedApp = memo(function EnhancedApp() {
 
   // Handle diff update
   const handleDiffUpdate = useCallback(async (prompt: string) => {
-    if (!systemState.diffSystem || !appState.fragment) {
+    if (!appState.fragment) {
       toast({
         title: 'Diff update unavailable',
         description: 'Please generate some code first.',
@@ -1118,30 +1109,41 @@ const EnhancedApp = memo(function EnhancedApp() {
         }
       }))
 
-      const request: DiffUpdateRequest = {
-        userPrompt: prompt,
-        currentCode: typeof appState.fragment === 'string' ? appState.fragment : JSON.stringify(appState.fragment, null, 2),
-        author: 'user',
-        title: `Update: ${prompt.substring(0, 50)}...`,
-        description: prompt,
-        changeType: 'feature',
-        priority: 'medium'
+      // Call the server-side diff API
+      const response = await fetch('/api/diff', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          appId: appState.currentAppId || 'session',
+          userPrompt: prompt,
+          currentCode: typeof appState.fragment === 'string' ? appState.fragment : JSON.stringify(appState.fragment, null, 2),
+          author: 'user',
+          title: `Update: ${prompt.substring(0, 50)}...`,
+          description: prompt,
+          changeType: 'feature',
+          priority: 'medium'
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Diff API failed: ${response.status}`)
       }
 
-      const result = await systemState.diffSystem.processUpdate(request, (progress) => {
-        setAppState(prev => ({
-          ...prev,
-          streamingProgress: {
-            stage: progress.stage as any,
-            progress: progress.progress,
-            message: progress.details?.analyzing || progress.details?.creating || progress.details?.applying || progress.details?.step || 'Processing...',
-            errors: progress.errors,
-            warnings: progress.warnings,
-            canPause: progress.stage === 'execution',
-            isPaused: false
-          }
-        }))
-      })
+      const result = await response.json()
+
+      // Update progress during processing
+      setAppState(prev => ({
+        ...prev,
+        streamingProgress: {
+          stage: 'reviewing',
+          progress: 90,
+          message: 'Processing diff results...',
+          canPause: false,
+          isPaused: false
+        }
+      }))
 
       if (result.success && result.previewCode) {
         // Parse the preview code
@@ -1290,7 +1292,7 @@ const EnhancedApp = memo(function EnhancedApp() {
         variant: 'destructive'
       })
     }
-  }, [systemState.diffSystem, systemState.versionSystem, appState.fragment, appState.currentAppId, getSandbox, handleAutoSave])
+  }, [systemState.versionSystem, appState.fragment, appState.currentAppId, getSandbox, handleAutoSave])
 
   // Handle conversational modification
   const handleConversationalModification = useCallback(async (message: string) => {
