@@ -2,12 +2,11 @@
 
 import { FragmentInterpreter } from './fragment-interpreter'
 import { FragmentWeb } from './fragment-web'
-import { InstantPreview } from './instant-preview-v2'
-import { BrowserPreview } from './browser-preview'
 import { ExecutionResult } from '@/lib/types'
-import { useState, useEffect } from 'react'
-import { shouldUseBrowserPreview, templateSupportsBrowserPreview } from '@/lib/feature-flags'
+import { useState, useEffect, Suspense } from 'react'
+import { selectSandbox, getSandboxComponent } from '@/lib/sandbox-router'
 import type { TemplateId } from '@/lib/templates'
+import { Card } from './ui/card'
 
 interface FragmentPreviewProps {
   result?: ExecutionResult | null
@@ -17,28 +16,6 @@ interface FragmentPreviewProps {
     file_path?: string
   }
   userId?: string
-}
-
-// Check if code is simple enough for instant preview
-function canUseInstantPreview(code: string, template: string): boolean {
-  // Only for React-based templates
-  if (!['nextjs-developer', 'react'].includes(template)) {
-    return false
-  }
-
-  // Check if code is self-contained React
-  const hasReact = code.includes('React') || code.includes('function App') || code.includes('const App')
-  const hasComplexImports = code.match(/import .* from ['"](?!react|react-dom|lucide-react)/g)
-  const hasServerCode = code.includes('use server') || code.includes('export async function') || code.includes('getServerSideProps')
-  const hasFileSystem = code.includes('fs.') || code.includes("require('fs')")
-  const hasNodeModules = code.includes('node:') || code.includes('path.') || code.includes('process.')
-  
-  // Can use instant preview if:
-  // 1. Has React code
-  // 2. No complex imports (only react, react-dom, lucide-react allowed)
-  // 3. No server-side code
-  // 4. No file system or Node.js specific code
-  return hasReact && !hasComplexImports && !hasServerCode && !hasFileSystem && !hasNodeModules
 }
 
 // Extract dependencies from code
@@ -84,28 +61,31 @@ if (typeof App !== 'undefined') {
   return transformed
 }
 
+// Loading component for Suspense
+function PreviewLoading() {
+  return (
+    <Card className="flex items-center justify-center h-full bg-muted/30">
+      <div className="text-center space-y-3 p-6">
+        <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]"></div>
+        <p className="text-muted-foreground">Loading preview environment...</p>
+      </div>
+    </Card>
+  )
+}
+
 export function FragmentPreview({ result, fragment, userId }: FragmentPreviewProps) {
-  const [useInstant, setUseInstant] = useState(false)
   const [transformedCode, setTransformedCode] = useState('')
   const [dependencies, setDependencies] = useState<string[]>([])
-  const [browserPreviewError, setBrowserPreviewError] = useState<Error | null>(null)
 
   useEffect(() => {
-    // Check if we can use instant preview when fragment changes
+    // Prepare code transformations for instant preview if needed
     if (fragment && !result) {
-      const canUseInstant = canUseInstantPreview(fragment.code, fragment.template)
-      setUseInstant(canUseInstant)
-      
-      if (canUseInstant) {
-        setTransformedCode(transformCodeForInstantPreview(fragment.code))
-        setDependencies(extractDependencies(fragment.code))
-      }
-    } else {
-      setUseInstant(false)
+      setTransformedCode(transformCodeForInstantPreview(fragment.code))
+      setDependencies(extractDependencies(fragment.code))
     }
   }, [fragment, result])
 
-  // If we have a result (sandbox created), use the appropriate viewer
+  // If we have a result (sandbox already created), use the appropriate viewer
   if (result) {
     if (result.template === 'code-interpreter-v1') {
       return <FragmentInterpreter result={result} />
@@ -113,52 +93,22 @@ export function FragmentPreview({ result, fragment, userId }: FragmentPreviewPro
     return <FragmentWeb result={result} />
   }
 
-  // Check if we should use browser preview
-  if (fragment && shouldUseBrowserPreview(userId) && templateSupportsBrowserPreview(fragment.template as TemplateId)) {
+  // If no fragment, show loading state
+  if (!fragment || !fragment.code) {
     return (
-      <div className="h-full flex flex-col">
-        <div className="bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground border-b flex items-center justify-between">
-          <span>🌐 Browser Preview (Experimental)</span>
-          {browserPreviewError && (
-            <span className="text-red-500">Error loading preview</span>
-          )}
-        </div>
-        <div className="flex-1">
-          <BrowserPreview 
-            code={fragment.code}
-            template={fragment.template as TemplateId}
-            onError={(error) => {
-              console.error('Browser preview error:', error)
-              setBrowserPreviewError(error)
-            }}
-            onReady={() => {
-              setBrowserPreviewError(null)
-            }}
-          />
-        </div>
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        <p>Preparing preview...</p>
       </div>
     )
   }
 
-  // If we can use instant preview and have fragment data, show it
-  if (useInstant && fragment && transformedCode) {
-    return (
-      <div className="h-full flex flex-col">
-        <div className="bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground border-b">
-          ⚡ Instant Preview (CDN-based)
-        </div>
-        <div className="flex-1">
-          <InstantPreview 
-            code={transformedCode} 
-            dependencies={dependencies}
-          />
-        </div>
-      </div>
-    )
-  }
+  // Use the sandbox router to determine which preview component to use
+  const sandboxType = selectSandbox(fragment, userId)
+  const PreviewComponent = getSandboxComponent(sandboxType)
 
-  // Loading state or fallback to sandbox when no instant preview available
-  if (fragment && !canUseInstantPreview(fragment.code, fragment.template)) {
+  // For legacy sandbox type, return the original decision tree logic
+  if (sandboxType === 'legacy') {
+    // This will be removed in a future update once WebContainers is fully implemented
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
         <div className="text-center space-y-2">
@@ -169,9 +119,29 @@ export function FragmentPreview({ result, fragment, userId }: FragmentPreviewPro
     )
   }
 
+  // For all other sandbox types, render the component with Suspense
   return (
-    <div className="flex items-center justify-center h-full text-muted-foreground">
-      <p>Preparing preview...</p>
-    </div>
+    <Suspense fallback={<PreviewLoading />}>
+      <div className="h-full flex flex-col">
+        <div className="bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground border-b flex items-center justify-between">
+          <span>
+            {sandboxType === 'webcontainer' && '⚡ WebContainer Preview'}
+            {sandboxType === 'browser' && '🌐 Browser Preview'}
+            {sandboxType === 'sandpack' && '📦 Sandpack Preview'}
+            {sandboxType === 'instant' && '⚡ Instant Preview'}
+            {sandboxType === 'e2b' && '🖥️ Sandbox Preview'}
+          </span>
+        </div>
+        <div className="flex-1">
+          <PreviewComponent
+            fragment={fragment}
+            code={fragment.code}
+            template={fragment.template as TemplateId}
+            transformedCode={transformedCode}
+            dependencies={dependencies}
+          />
+        </div>
+      </div>
+    </Suspense>
   )
 }

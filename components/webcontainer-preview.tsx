@@ -14,7 +14,12 @@ import { useIframeConsole } from '@/lib/hooks/use-iframe-console';
 import { BrowserConsole } from './browser-console';
 
 interface WebContainerPreviewProps {
-  fragment: FragmentSchema;
+  // Either full fragment or separate code + template can be supplied
+  fragment?: FragmentSchema;
+  code?: string;
+  template?: string;
+  transformedCode?: string;
+  dependencies?: string[]; // reserved for future use
   onError?: (error: Error) => void;
   onReady?: () => void;
   showConsole?: boolean;
@@ -23,6 +28,9 @@ interface WebContainerPreviewProps {
 
 export function WebContainerPreview({
   fragment,
+  code,
+  template,
+  transformedCode,
   onError,
   onReady,
   showConsole = false,
@@ -88,7 +96,10 @@ export function WebContainerPreview({
 
   // Initialize WebContainer and create app
   useEffect(() => {
-    if (!fragment || !fragment.code || !fragment.template) return;
+    const effectiveCode = (transformedCode ?? code) ?? fragment?.code;
+    const effectiveTemplate = template ?? fragment?.template;
+
+    if (!effectiveCode || !effectiveTemplate) return;
     
     const initWebContainer = async () => {
       try {
@@ -97,8 +108,8 @@ export function WebContainerPreview({
         setError(null);
         
         const url = await WebContainerService.createAppFromTemplate(
-          fragment.template,
-          fragment.code,
+          effectiveTemplate,
+          effectiveCode,
           handleStatusUpdate
         );
         
@@ -142,11 +153,13 @@ export function WebContainerPreview({
       setTimeout(() => setIsRefreshing(false), 1000);
     } else {
       // Re-initialize if no URL available
-      if (fragment && fragment.code && fragment.template) {
+      const effectiveCode = (transformedCode ?? code) ?? fragment?.code;
+      const effectiveTemplate = template ?? fragment?.template;
+      if (effectiveCode && effectiveTemplate) {
         try {
           const url = await WebContainerService.createAppFromTemplate(
-            fragment.template,
-            fragment.code,
+            effectiveTemplate,
+            effectiveCode,
             handleStatusUpdate
           );
           setPreviewUrl(url);
