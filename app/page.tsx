@@ -1105,6 +1105,19 @@ const EnhancedApp = memo(function EnhancedApp() {
     }
 
     try {
+      // Set generating state and show initial progress
+      setAppState(prev => ({
+        ...prev,
+        isGenerating: true,
+        streamingProgress: {
+          stage: 'connecting',
+          progress: 0,
+          message: 'Starting incremental update...',
+          canPause: false,
+          isPaused: false
+        }
+      }))
+
       const request: DiffUpdateRequest = {
         userPrompt: prompt,
         currentCode: appState.fragment,
@@ -1121,48 +1134,163 @@ const EnhancedApp = memo(function EnhancedApp() {
           streamingProgress: {
             stage: progress.stage as any,
             progress: progress.progress,
-            message: progress.details?.step || 'Processing...',
+            message: progress.details?.analyzing || progress.details?.creating || progress.details?.applying || progress.details?.step || 'Processing...',
             errors: progress.errors,
-            warnings: progress.warnings
+            warnings: progress.warnings,
+            canPause: progress.stage === 'execution',
+            isPaused: false
           }
         }))
       })
 
       if (result.success && result.previewCode) {
-        // If previewCode is a string, try to parse it as JSON, otherwise use as-is
+        // Parse the preview code
         let parsedCode: DeepPartial<FragmentSchema> | undefined = result.previewCode as any
         if (typeof result.previewCode === 'string') {
           try {
             parsedCode = JSON.parse(result.previewCode) as DeepPartial<FragmentSchema>
           } catch (error) {
             console.error('Failed to parse previewCode as JSON:', error)
-            // If parsing fails, assume it's already the correct format
             parsedCode = result.previewCode as any
           }
         }
         
+        // Update the fragment
         setAppState(prev => ({
           ...prev,
           fragment: parsedCode,
-          streamingProgress: undefined
+          isPreviewLoading: true,
+          streamingProgress: {
+            stage: 'reviewing',
+            progress: 95,
+            message: 'Updating preview...',
+            canPause: false,
+            isPaused: false
+          }
         }))
+
+        // Create version if version system is available
+        if (systemState.versionSystem && parsedCode) {
+          try {
+            const version = systemState.versionSystem.createVersion(
+              parsedCode,
+              `Incremental update: ${prompt.substring(0, 50)}`,
+              prompt,
+              'user',
+              ['diff-update', 'incremental']
+            )
+            
+            setSystemState(prev => ({
+              ...prev,
+              versions: [...prev.versions, version]
+            }))
+            
+            if (process.env.NODE_ENV === 'development') {
+              console.log('📦 Created version for diff update:', version.metadata.message)
+            }
+          } catch (versionError) {
+            console.error('Failed to create version for diff update:', versionError)
+          }
+        }
+
+        // Update sandbox/preview
+        try {
+          // Check if we should use browser preview
+          const { shouldUseBrowserPreview, templateSupportsBrowserPreview } = await import('@/lib/feature-flags')
+          
+          // Get user ID for feature flag, fallback to 'demo' if no auth
+          let userId = 'demo'
+          try {
+            const { supabase } = await import('@/lib/supabase')
+            if (supabase) {
+              const { data: { session } } = await supabase.auth.getSession()
+              userId = session?.user?.id || 'demo'
+            }
+          } catch (error) {
+            console.log('Auth not available, using demo mode for diff update')
+          }
+          
+          let newResult: ExecutionResult | null = null
+          
+          if (shouldUseBrowserPreview(userId) && templateSupportsBrowserPreview(parsedCode?.template || 'nextjs-developer')) {
+            if (process.env.NODE_ENV === 'development') {
+              console.log('🌐 Using browser preview for diff update')
+            }
+            // For browser preview, don't create a result
+            newResult = null
+          } else {
+            if (process.env.NODE_ENV === 'development') {
+              console.log('🚀 Using E2B sandbox for diff update')
+            }
+            
+            newResult = await getSandbox(
+              appState.currentAppId || `session-${Date.now()}`,
+              parsedCode,
+              appState.currentAppId || undefined
+            )
+          }
+
+          // Final state update
+          setAppState(prev => ({
+            ...prev,
+            result: newResult,
+            isGenerating: false,
+            isPreviewLoading: false,
+            streamingProgress: undefined
+          }))
+
+          // Auto-save after successful diff update
+          if (newResult) {
+            await handleAutoSave(parsedCode, newResult)
+          } else {
+            // For browser preview, create a minimal result for saving
+            await handleAutoSave(parsedCode, {
+              sbxId: `browser-diff-${Date.now()}`,
+              template: parsedCode.template || 'nextjs-developer'
+            } as ExecutionResult)
+          }
+          
+        } catch (previewError) {
+          console.error('Failed to update preview after diff:', previewError)
+          setAppState(prev => ({
+            ...prev,
+            isGenerating: false,
+            isPreviewLoading: false,
+            streamingProgress: undefined
+          }))
+          
+          // Still show success since the code was updated
+          toast({
+            title: 'Update applied',
+            description: 'Changes applied successfully, but preview update failed. The code has been updated.',
+          })
+          return
+        }
         
         toast({
-          title: 'Update applied',
-          description: 'Your changes have been applied successfully.',
+          title: 'Incremental update successful!',
+          description: `Applied changes: ${result.diffResult?.changes.length || 0} modifications`,
         })
+        
       } else {
-        throw new Error(result.errors.join(', '))
+        throw new Error(result.errors.join(', ') || 'Diff update failed')
       }
     } catch (error) {
       console.error('Diff update error:', error)
+      setAppState(prev => ({
+        ...prev,
+        isGenerating: false,
+        isPreviewLoading: false,
+        streamingProgress: undefined
+      }))
+      
       toast({
-        title: 'Update failed',
+        title: 'Incremental update failed',
         description: error instanceof Error ? error.message : 'Unknown error occurred',
         variant: 'destructive'
       })
     }
-  }, [systemState.diffSystem, appState.fragment])
+  }, [systemState.diffSystem, systemState.versionSystem, appState.fragment, appState.currentAppId, getSandbox, handleAutoSave])
 
   // Handle conversational modification
   const handleConversationalModification = useCallback(async (message: string) => {
@@ -1208,6 +1336,12 @@ const EnhancedApp = memo(function EnhancedApp() {
       })
       return
     }
+
+    // Show info toast about diff system
+    toast({
+      title: '⚡ Using incremental updates',
+      description: 'Applying changes without regenerating the entire app...',
+    })
 
     // Use the diff system to apply incremental changes
     handleDiffUpdate(input.trim())
@@ -1373,26 +1507,7 @@ const EnhancedApp = memo(function EnhancedApp() {
               isMultiModal={currentModel?.multiModal || false}
               files={files}
               handleFileChange={setFiles}
-              onDiffUpdate={() => {
-                if (!input.trim()) {
-                  toast({
-                    title: 'No changes specified',
-                    description: 'Please describe what changes you want to make.',
-                    variant: 'destructive'
-                  })
-                  return
-                }
-                if (!appState.fragment) {
-                  toast({
-                    title: 'No code to modify', 
-                    description: 'Please generate some code first.',
-                    variant: 'destructive'
-                  })
-                  return
-                }
-                handleDiffUpdate(input.trim())
-                setInput('')
-              }}
+              onDiffUpdate={handleChatDiffUpdate}
             >
                 <ChatPicker
                   templates={templates}
@@ -1537,26 +1652,7 @@ const EnhancedApp = memo(function EnhancedApp() {
               isMultiModal={currentModel?.multiModal || false}
               files={files}
               handleFileChange={setFiles}
-              onDiffUpdate={() => {
-                if (!input.trim()) {
-                  toast({
-                    title: 'No changes specified',
-                    description: 'Please describe what changes you want to make.',
-                    variant: 'destructive'
-                  })
-                  return
-                }
-                if (!appState.fragment) {
-                  toast({
-                    title: 'No code to modify', 
-                    description: 'Please generate some code first.',
-                    variant: 'destructive'
-                  })
-                  return
-                }
-                handleDiffUpdate(input.trim())
-                setInput('')
-              }}
+              onDiffUpdate={handleChatDiffUpdate}
             >
             <ChatPicker
               templates={templates}
