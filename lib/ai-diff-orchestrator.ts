@@ -3,6 +3,7 @@ import { IncrementalUpdateSystem, UpdatePlan, UpdateProgress } from './increment
 import { CodeChange } from './enhanced-code-differ'
 import { TriageResult } from './ai-triage'
 import { AgentContext, AgentResult } from './ai-agents'
+import { models } from './ai-config'
 
 export interface DiffGenerationOptions {
   preserveComments?: boolean
@@ -626,19 +627,27 @@ Focus on minimal, precise changes that achieve the user's intent while preservin
 
   private async callAI(prompt: string, options: any = {}): Promise<string> {
     try {
-      const { openrouter } = await import('./ai-config')
-      const model = openrouter('anthropic/claude-3.5-sonnet')
-      
-      const response = await model.doGenerate({
-        inputFormat: 'prompt',
-        mode: { type: 'regular' },
-        prompt: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
-        temperature: options.temperature || 0.3,
-        maxTokens: options.maxTokens || 2000,
-        topP: 0.9
+      // Use the same API endpoint as the main chat for consistency
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: prompt }],
+          model: models.diffGeneration, // Use Gemini 2.5 Flash Lite for diffs
+          temperature: options.temperature || 0.2, // Lower temperature for more precise diffs
+          maxTokens: options.maxTokens || 2000,
+          stream: false
+        })
       })
-      
-      return response.text || ''
+
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.status}`)
+      }
+
+      const data = await response.json()
+      return data.content || data.message || ''
     } catch (error) {
       console.error('AI call failed:', error)
       return '{}'

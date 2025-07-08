@@ -1120,7 +1120,7 @@ const EnhancedApp = memo(function EnhancedApp() {
 
       const request: DiffUpdateRequest = {
         userPrompt: prompt,
-        currentCode: appState.fragment,
+        currentCode: typeof appState.fragment === 'string' ? appState.fragment : JSON.stringify(appState.fragment, null, 2),
         author: 'user',
         title: `Update: ${prompt.substring(0, 50)}...`,
         description: prompt,

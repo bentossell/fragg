@@ -462,19 +462,32 @@ export class CodeOrchestrator {
   
   // Helper method to call AI for diffs
   private async callAIForDiffs(prompt: string): Promise<string> {
-    const { openrouter } = await import('@/lib/ai-config')
-    const model = openrouter('anthropic/claude-3.5-sonnet') // Use best model for diffs
-    
-    const response = await model.doGenerate({
-      inputFormat: 'prompt',
-      mode: { type: 'regular' },
-      prompt: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
-      temperature: 0.2, // Lower temperature for more precise diffs
-      maxTokens: 2000,
-      topP: 0.9
-    })
-    
-    return response.text || ''
+    try {
+      // Use the same API endpoint as the main chat for consistency
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: prompt }],
+                     model: models.diffGeneration, // Use Gemini 2.5 Flash Lite for diffs
+          temperature: 0.2, // Lower temperature for more precise diffs
+          maxTokens: 2000,
+          stream: false
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Diff API call failed: ${response.status}`)
+      }
+
+      const data = await response.json()
+      return data.content || data.message || ''
+    } catch (error) {
+      console.error('AI diff call failed:', error)
+      return ''
+    }
   }
   
   // Fallback to full regeneration with context
@@ -487,45 +500,77 @@ export class CodeOrchestrator {
     const language = this.detectLanguage(existingCode)
     const fallbackPrompt = CodeDiffer.createFallbackPrompt(userPrompt, existingCode, language)
     
-    const { openrouter } = await import('@/lib/ai-config')
-    const model = openrouter('anthropic/claude-3.5-sonnet')
-    
-    const response = await model.doGenerate({
-      inputFormat: 'prompt',
-      mode: { type: 'regular' },
-      prompt: [{ role: 'user', content: [{ type: 'text', text: fallbackPrompt }] }],
-      temperature: 0.3,
-      maxTokens: 4000,
-      topP: 0.9
-    })
-    
-    const code = this.cleanGeneratedCode(response.text || '')
-    this.storeLastGeneratedCode(code)
-    
-    const executionTime = Date.now() - startTime
-    
-    return {
-      code,
-      template: this.detectTemplate(code),
-      dependencies: this.extractDependenciesFromCode(code),
-      executionTime,
-      agentResults: [{
-        agentName: 'FallbackAgent',
+    try {
+      // Use the same API endpoint as the main chat for consistency
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: fallbackPrompt }],
+                     model: models.planning, // Use Claude 4 Sonnet for planning/complex tasks
+          temperature: 0.3,
+          maxTokens: 4000,
+          stream: false
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Fallback API call failed: ${response.status}`)
+      }
+
+      const data = await response.json()
+      const code = this.cleanGeneratedCode(data.content || data.message || '')
+      this.storeLastGeneratedCode(code)
+      
+      const executionTime = Date.now() - startTime
+      
+      return {
         code,
+        template: this.detectTemplate(code),
+        dependencies: this.extractDependenciesFromCode(code),
+        executionTime,
+        agentResults: [{
+          agentName: 'FallbackAgent',
+          code,
+          dependencies: [],
+          metadata: { type: 'fallback', reason: 'diff_failed' },
+          executionTime
+        }],
+        metadata: {
+          triageTime: 0,
+          generationTime: executionTime,
+          assemblyTime: 0,
+          totalAgents: 1,
+          errors: ['Diff mode failed, used full regeneration'],
+          fallbacks: 1,
+          cacheHits: 0,
+          isIteration: true,
+          diffMode: false
+        }
+      }
+    } catch (error) {
+      console.error('Fallback generation failed:', error)
+      // Return a minimal fallback result
+      const executionTime = Date.now() - startTime
+      return {
+        code: existingCode, // Return existing code if all else fails
+        template: this.detectTemplate(existingCode),
         dependencies: [],
-        metadata: { type: 'fallback', reason: 'diff_failed' },
-        executionTime
-      }],
-      metadata: {
-        triageTime: 0,
-        generationTime: executionTime,
-        assemblyTime: 0,
-        totalAgents: 1,
-        errors: ['Diff mode failed, used full regeneration'],
-        fallbacks: 1,
-        cacheHits: 0,
-        isIteration: true,
-        diffMode: false
+        executionTime,
+        agentResults: [],
+        metadata: {
+          triageTime: 0,
+          generationTime: executionTime,
+          assemblyTime: 0,
+          totalAgents: 0,
+          errors: ['All generation methods failed'],
+          fallbacks: 1,
+          cacheHits: 0,
+          isIteration: true,
+          diffMode: false
+        }
       }
     }
   }
