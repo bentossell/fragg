@@ -1,9 +1,12 @@
+/**
+ * Next.js “instrumentation” entrypoint.
+ * ------------------------------------
+ * We previously used this file to boot an E2B sandbox-pool on
+ * server start.  Since all Python/E2B code has been removed,
+ * this is now a simple no-op placeholder kept for potential
+ * future server-side hooks (e.g. logging/analytics warm-ups).
+ */
 export async function register() {
-  if (process.env.NEXT_RUNTIME === 'nodejs') {
-    // Only run on the server
-    const { initializeSandboxPool } = await import('./archive/sandbox/init-sandbox-pool')
-    
-    // Initialize sandbox pool on server startup
-    await initializeSandboxPool()
-  }
+  // No server-side instrumentation needed at the moment.
+  // This function intentionally left blank.
 }

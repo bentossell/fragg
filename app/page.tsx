@@ -79,6 +79,27 @@ import {
 // Actions
 import { forkApp } from './actions/fork-app'
 
+/**
+ * Debugging helpers
+ * ---------------------------------------------------------------------------------
+ * Toggle verbose streaming logs by setting:
+ *    NEXT_PUBLIC_DEBUG_STREAMING=true
+ * in your environment.  This keeps production/dev consoles clean while still
+ * allowing deep-dive debugging when required.
+ */
+const DEBUG_STREAMING =
+  typeof window !== 'undefined' &&
+  (process.env.NEXT_PUBLIC_DEBUG_STREAMING === 'true' ||
+    process.env.NODE_ENV === 'debug')
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const debugStream = (...args: any[]) => {
+  if (DEBUG_STREAMING) {
+    // Use a subtle emoji to make these easy to spot.
+    console.log('📡', ...args)
+  }
+}
+
 // Constants
 const PREWARM_FRAGMENT: DeepPartial<FragmentSchema> = {
   template: 'nextjs-developer',
@@ -585,7 +606,7 @@ const EnhancedApp = memo(function EnhancedApp() {
 
   // Sync isGenerating with isLoading from useObject and update streaming progress
   useEffect(() => {
-    console.log('🔄 isLoading changed:', isLoading)
+    debugStream('isLoading changed →', isLoading)
     setAppState(prev => ({ 
       ...prev, 
       isGenerating: isLoading,
@@ -602,7 +623,7 @@ const EnhancedApp = memo(function EnhancedApp() {
   // Handle streaming object updates and parse progress
   useEffect(() => {
     if (object && isLoading) {
-      console.log('🔄 Streaming object update:', object)
+      debugStream('Streaming update', object)
       const content: Message['content'] = []
       
       if (object.commentary) {
@@ -717,7 +738,7 @@ const EnhancedApp = memo(function EnhancedApp() {
             object,
           }
           messages.push(newMessage)
-          console.log('📝 Added streaming assistant message')
+          debugStream('assistant message appended (stream)')
         } else if (lastMessage.role === 'assistant') {
           // Update existing assistant message with streaming content
           messages[messages.length - 1] = {
@@ -725,7 +746,7 @@ const EnhancedApp = memo(function EnhancedApp() {
             content,
             object,
           }
-          console.log('📝 Updated streaming assistant message')
+          debugStream('assistant message updated (stream)')
         }
         
         return { ...prev, messages, streamingProgress }

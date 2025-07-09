@@ -5,7 +5,10 @@ import { toPrompt } from '@/lib/prompt'
 import ratelimit from '@/lib/ratelimit'
 import { fragmentSchema as schema } from '@/lib/schema'
 import templates, { Template, TemplateId } from '@/lib/templates'
-import { selectOptimalTemplate } from '@/lib/template-selector'
+import { selectOptimalTemplate } from '@/lib/template-selector' // <- legacy fallback
+import { detectTemplate } from '@/lib/template-detector'
+import { PerformanceTracker } from '@/lib/performance'
+import { getModelForPrompt } from '@/lib/models-optimized'
 import { streamObject, LanguageModel, CoreMessage } from 'ai'
 
 export const maxDuration = 60
@@ -25,6 +28,12 @@ export async function POST(req: Request) {
     existingCode,
     config
   } = await req.json()
+
+  // -----------------------------------------------------------------------------
+  // Performance tracker (dev-only logs shown when ENABLED)
+  // -----------------------------------------------------------------------------
+  const perf = new PerformanceTracker('chat-api')
+  perf.mark('start')
 
   // Extract the user's prompt from the last message
   const lastUserMessage = messages.filter((m: any) => m.role === 'user').pop()
@@ -68,15 +77,20 @@ export async function POST(req: Request) {
     provider: 'OpenRouter',
     providerId: 'openrouter'
   }
-  
-  const modelToUse = model || defaultModel
+  // Pick caller-supplied model or fall back to an optimised default based
+  // on the prompt; finally default to our hard-coded model.
+  let modelToUse: LLMModelConfig =
+    model ||
+    getModelForPrompt(userPrompt || '') ||
+    (defaultModel as unknown as LLMModelConfig)
   
   // Smart template selection
   let templateToUse = template || templates
-  
+  perf.mark('template-detect-start')
   if (!template || template === 'auto') {
     try {
-      const optimalTemplate = selectOptimalTemplate(userPrompt || '')
+      // Fast keyword-based detector first
+      const optimalTemplate = detectTemplate(userPrompt || '')
       if (process.env.NODE_ENV === 'development') {
         console.log(`🎯 Auto-selected template: ${optimalTemplate}`)
       }
@@ -97,6 +111,7 @@ export async function POST(req: Request) {
       templateToUse = templates
     }
   }
+  perf.measure('template-detect', 'template-detect-start')
 
   // Additional validation to ensure templateToUse is valid
   if (!templateToUse || typeof templateToUse !== 'object') {
@@ -106,9 +121,11 @@ export async function POST(req: Request) {
     templateToUse = templates
   }
 
-  // Get model configuration
-  let modelClient: any
-  let modelParams: any = {}
+  // ---------------------------------------------------------------------------
+  // Build model client
+  // ---------------------------------------------------------------------------
+  let modelClient: LanguageModel
+  let modelParams: Partial<LLMModelConfig> = {}
 
   try {
     modelClient = getModelClient(modelToUse, config || {})
@@ -119,7 +136,7 @@ export async function POST(req: Request) {
     console.error('❌ Failed to get model client:', error)
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
     return new Response(
-      JSON.stringify({ error: 'Model configuration error', details: errorMessage }), 
+      JSON.stringify({ error: 'Model configuration error', details: errorMessage }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     )
   }
@@ -221,6 +238,14 @@ export async function POST(req: Request) {
         headers: { 'Content-Type': 'application/json' } 
       }
     )
+  }
+
+  // Always (attempt to) log performance at the end in dev
+  finally {
+    if (process.env.NODE_ENV === 'development') {
+      perf.endSession('total')
+      perf.logReport()
+    }
   }
 }
 
