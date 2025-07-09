@@ -10,6 +10,7 @@ import { detectTemplate } from '@/lib/template-detector'
 import { PerformanceTracker } from '@/lib/performance'
 import { getModelForPrompt } from '@/lib/models-optimized'
 import { streamObject, LanguageModel, CoreMessage } from 'ai'
+import { logger } from '@/lib/logger'
 
 export const maxDuration = 60
 
@@ -43,10 +44,10 @@ export async function POST(req: Request) {
 
   // Only log in development
   if (process.env.NODE_ENV === 'development') {
-    console.log('🚀 Chat API: Processing request')
-    console.log('- Model:', model?.id || 'default')
-    console.log('- Template:', template || 'auto')
-    console.log('- User prompt:', userPrompt?.substring(0, 100) + '...')
+    logger.debug('🚀 Chat API: Processing request')
+    logger.debug('- Model:', model?.id || 'default')
+    logger.debug('- Template:', template || 'auto')
+    logger.debug('- User prompt:', userPrompt?.substring(0, 100) + '...')
   }
 
   // Rate limiting
@@ -55,19 +56,19 @@ export async function POST(req: Request) {
     const rateLimitResult = await ratelimit(identifier, rateLimitMaxRequests, ratelimitWindow)
     if (rateLimitResult) {
       if (process.env.NODE_ENV === 'development') {
-        console.log('❌ Rate limit exceeded for:', identifier)
+        logger.debug('❌ Rate limit exceeded for:', identifier)
       }
       return new Response('Rate limit exceeded', { status: 429 })
     }
   } catch (error) {
-    console.error('Rate limiting error:', error)
+    logger.error('Rate limiting error:', error)
   }
 
   // Generate unique request ID for tracking
   const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
   
   if (process.env.NODE_ENV === 'development') {
-    console.log(`🎯 Starting generation [${requestId}]`)
+    logger.debug(`🎯 Starting generation [${requestId}]`)
   }
 
   // Use default model if none provided
@@ -92,7 +93,7 @@ export async function POST(req: Request) {
       // Fast keyword-based detector first
       const optimalTemplate = detectTemplate(userPrompt || '')
       if (process.env.NODE_ENV === 'development') {
-        console.log(`🎯 Auto-selected template: ${optimalTemplate}`)
+        logger.debug(`🎯 Auto-selected template: ${optimalTemplate}`)
       }
       
       // Ensure the selected template exists in our templates
@@ -100,13 +101,13 @@ export async function POST(req: Request) {
         templateToUse = { [optimalTemplate]: templates[optimalTemplate as TemplateId] }
       } else {
         if (process.env.NODE_ENV === 'development') {
-          console.warn(`Selected template "${optimalTemplate}" not found, using all templates`)
+          logger.warn(`Selected template "${optimalTemplate}" not found, using all templates`)
         }
         templateToUse = templates
       }
     } catch (error) {
       if (process.env.NODE_ENV === 'development') {
-        console.warn('Template selection failed, using default:', error)
+        logger.warn('Template selection failed, using default:', error)
       }
       templateToUse = templates
     }
@@ -116,7 +117,7 @@ export async function POST(req: Request) {
   // Additional validation to ensure templateToUse is valid
   if (!templateToUse || typeof templateToUse !== 'object') {
     if (process.env.NODE_ENV === 'development') {
-      console.warn('Invalid templateToUse, falling back to default templates')
+      logger.warn('Invalid templateToUse, falling back to default templates')
     }
     templateToUse = templates
   }
@@ -130,10 +131,10 @@ export async function POST(req: Request) {
   try {
     modelClient = getModelClient(modelToUse, config || {})
     if (process.env.NODE_ENV === 'development') {
-      console.log('✅ Model client configured:', modelToUse.id)
+      logger.debug('✅ Model client configured:', modelToUse.id)
     }
   } catch (error) {
-    console.error('❌ Failed to get model client:', error)
+    logger.error('❌ Failed to get model client:', error)
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
     return new Response(
       JSON.stringify({ error: 'Model configuration error', details: errorMessage }),
@@ -144,8 +145,8 @@ export async function POST(req: Request) {
   // Execute generation with proper AI SDK streaming
   try {
     if (process.env.NODE_ENV === 'development') {
-      console.log(`🔄 Generating with model: ${modelToUse.id}`)
-      console.log(`📄 Using prompt template:`, typeof templateToUse === 'string' ? templateToUse : 'dynamic')
+      logger.debug(`🔄 Generating with model: ${modelToUse.id}`)
+      logger.debug(`📄 Using prompt template:`, typeof templateToUse === 'string' ? templateToUse : 'dynamic')
     }
     
     const stream = await streamObject({
@@ -158,7 +159,7 @@ export async function POST(req: Request) {
     })
 
     if (process.env.NODE_ENV === 'development') {
-      console.log(`✅ Stream created successfully [${requestId}]`)
+      logger.debug(`✅ Stream created successfully [${requestId}]`)
     }
 
     return stream.toTextStreamResponse({
@@ -173,7 +174,7 @@ export async function POST(req: Request) {
       }
     })
   } catch (error: any) {
-    console.error(`❌ Generation error [${requestId}]:`, error)
+    logger.error(`❌ Generation error [${requestId}]:`, error)
     
     const isRateLimitError = error && (error.statusCode === 429 || error.message.includes('limit'))
     const isOverloadedError = error && (error.statusCode === 529 || error.statusCode === 503)

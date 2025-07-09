@@ -13,6 +13,7 @@ import { Progress } from './ui/progress'
 import { Loader2, Pause, Play, Square, Zap, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
 import { useThrottle } from '@/lib/hooks/use-debounce'
 import { usePerformanceMonitor, useRerenderTracker } from '@/lib/performance-monitor'
+import { logger } from '@/lib/logger'
 
 export interface StreamingUpdate {
   type: 'chunk' | 'metadata' | 'progress' | 'stage' | 'error' | 'complete'
@@ -129,7 +130,7 @@ export const RealTimeCodeStreaming = memo(function RealTimeCodeStreaming({
       try {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
       } catch (error) {
-        console.warn('Audio context not available:', error)
+        logger.debug('Audio context not available:', error)
       }
     }
   }, [enableSoundEffects])
@@ -154,7 +155,7 @@ export const RealTimeCodeStreaming = memo(function RealTimeCodeStreaming({
       oscillator.start()
       oscillator.stop(audioContextRef.current.currentTime + duration)
     } catch (error) {
-      console.warn('Sound playback failed:', error)
+      logger.debug('Sound playback failed:', error)
     }
   }, [enableSoundEffects])
   
@@ -178,7 +179,7 @@ export const RealTimeCodeStreaming = memo(function RealTimeCodeStreaming({
           try {
             Prism.highlightElement(codeRef.current)
           } catch (error) {
-            console.warn('Syntax highlighting failed:', error)
+            logger.debug('Syntax highlighting failed:', error)
           }
         }
       }, 200)
@@ -211,7 +212,7 @@ export const RealTimeCodeStreaming = memo(function RealTimeCodeStreaming({
   
   // Enhanced streaming generation with better error handling
   const startRealTimeGeneration = useCallback(async () => {
-    console.log('🚀 Starting enhanced real-time code generation:', prompt)
+    logger.debug('🚀 Starting enhanced real-time code generation:', prompt)
     const startTime = Date.now()
     
     setStreamingState(prev => ({
@@ -296,7 +297,7 @@ export const RealTimeCodeStreaming = memo(function RealTimeCodeStreaming({
         
         if (done) {
           const totalTime = Date.now() - startTime
-          console.log('✅ Enhanced streaming completed in', totalTime, 'ms')
+          logger.debug('✅ Enhanced streaming completed in', totalTime, 'ms')
           
           setStreamingState(prev => ({
             ...prev,
@@ -450,7 +451,7 @@ export const RealTimeCodeStreaming = memo(function RealTimeCodeStreaming({
             }
           }
         } catch (e) {
-          console.warn('Failed to parse streaming update:', e)
+          logger.debug('Failed to parse streaming update:', e)
         }
         
         // Fallback code detection if no structured updates
@@ -506,7 +507,7 @@ export const RealTimeCodeStreaming = memo(function RealTimeCodeStreaming({
       }
 
     } catch (error: any) {
-      console.error('❌ Enhanced streaming generation failed:', error)
+      logger.error('❌ Enhanced streaming generation failed:', error)
       
       const errorMessage = error.name === 'AbortError' 
         ? 'Generation was cancelled'
@@ -526,7 +527,7 @@ export const RealTimeCodeStreaming = memo(function RealTimeCodeStreaming({
       if (retryCount < maxRetries && error.name !== 'AbortError') {
         setRetryCount(prev => prev + 1)
         setTimeout(() => {
-          console.log(`🔄 Retrying (${retryCount + 1}/${maxRetries})...`)
+          logger.debug(`🔄 Retrying (${retryCount + 1}/${maxRetries})...`)
           startRealTimeGeneration()
         }, 1000 * Math.pow(2, retryCount)) // Exponential backoff
         return
@@ -787,7 +788,7 @@ export const CodeStreaming = memo(function CodeStreaming({
   isStreaming: boolean
   language?: string
 }) {
-  console.warn('CodeStreaming is deprecated. Use RealTimeCodeStreaming for enhanced streaming.')
+  logger.debug('CodeStreaming is deprecated. Use RealTimeCodeStreaming for enhanced streaming.')
   
   const [displayedCode, setDisplayedCode] = useState('')
   const codeRef = useRef<HTMLElement>(null)

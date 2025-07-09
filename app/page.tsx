@@ -8,6 +8,7 @@ import { useIsMobile, useIsDesktop } from '@/lib/hooks/use-media-query'
 import { useDebounce, useDebouncedCallback } from '@/lib/hooks/use-debounce'
 import { usePerformanceMonitor, useRerenderTracker } from '@/lib/performance-monitor'
 import { ErrorBoundary } from 'react-error-boundary'
+import { logger } from '@/lib/logger'
 
 // Core imports
 import modelsList from '@/lib/models.json'
@@ -82,23 +83,11 @@ import { forkApp } from './actions/fork-app'
 /**
  * Debugging helpers
  * ---------------------------------------------------------------------------------
- * Toggle verbose streaming logs by setting:
+ * Use the centralized logger utility instead of ad-hoc console calls.
+ * Enable verbose streaming logs via:
  *    NEXT_PUBLIC_DEBUG_STREAMING=true
- * in your environment.  This keeps production/dev consoles clean while still
- * allowing deep-dive debugging when required.
+ * in your environment.
  */
-const DEBUG_STREAMING =
-  typeof window !== 'undefined' &&
-  (process.env.NEXT_PUBLIC_DEBUG_STREAMING === 'true' ||
-    process.env.NODE_ENV === 'debug')
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const debugStream = (...args: any[]) => {
-  if (DEBUG_STREAMING) {
-    // Use a subtle emoji to make these easy to spot.
-    console.log('📡', ...args)
-  }
-}
 
 // Constants
 const PREWARM_FRAGMENT: DeepPartial<FragmentSchema> = {
@@ -247,7 +236,7 @@ const EnhancedApp = memo(function EnhancedApp() {
         const parsed = JSON.parse(stored)
         setLanguageModel(parsed)
       } catch (error) {
-        console.error('Failed to parse stored language model:', error)
+        logger.error('Failed to parse stored language model:', error)
       }
     }
     setIsHydrated(true)
@@ -310,7 +299,7 @@ const EnhancedApp = memo(function EnhancedApp() {
       try {
         existingVersions = versionSystem.getVersions()
       } catch (error) {
-        console.warn('Failed to load existing versions:', error)
+        logger.warn('Failed to load existing versions:', error)
       }
 
       // Load existing changes if available
@@ -318,7 +307,7 @@ const EnhancedApp = memo(function EnhancedApp() {
       try {
         existingChanges = changeManager.getRecentChanges()
       } catch (error) {
-        console.warn('Failed to load existing changes:', error)
+        logger.warn('Failed to load existing changes:', error)
       }
 
       // Update system state atomically
@@ -334,7 +323,7 @@ const EnhancedApp = memo(function EnhancedApp() {
       }))
 
       if (process.env.NODE_ENV === 'development') {
-        console.log('✅ Systems initialized successfully:', {
+        logger.info('✅ Systems initialized successfully:', {
           appId,
           versionSystem: !!versionSystem,
           conversationalSystem: !!conversationalSystem,
@@ -346,7 +335,7 @@ const EnhancedApp = memo(function EnhancedApp() {
       }
 
     } catch (error) {
-      console.error('❌ Failed to initialize systems:', error)
+      logger.error('❌ Failed to initialize systems:', error)
       
       // Reset initialized flag on failure so we can retry
       systemsInitialized.current = false
@@ -455,7 +444,7 @@ const EnhancedApp = memo(function EnhancedApp() {
     appId?: string
   ): Promise<ExecutionResult | null> => {
     try {
-      console.log('🔄 Creating sandbox for:', { sessionId, appId, template: fragment.template })
+      logger.info('🔄 Creating sandbox for:', { sessionId, appId, template: fragment.template })
       const response = await fetch('/api/sandbox', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -472,10 +461,10 @@ const EnhancedApp = memo(function EnhancedApp() {
       }
 
       const result = await response.json()
-      console.log('✅ Sandbox created successfully:', result)
+      logger.info('✅ Sandbox created successfully:', result)
       return result
     } catch (error) {
-      console.error('❌ Error getting sandbox:', error)
+      logger.error('❌ Error getting sandbox:', error)
       
       // Enhance timeout error messages
       if (error instanceof Error) {
@@ -507,7 +496,7 @@ const EnhancedApp = memo(function EnhancedApp() {
     api: '/api/chat',
     schema,
     onError: (error) => {
-      console.error('❌ useObject error:', error)
+      logger.error('❌ useObject error:', error)
       setAppState(prev => ({ ...prev, isGenerating: false, streamingProgress: undefined }))
       toast({
         title: 'Generation Error',
@@ -516,10 +505,10 @@ const EnhancedApp = memo(function EnhancedApp() {
       })
     },
     onFinish: async ({ object: fragment, error }) => {
-      console.log('✅ onFinish called:', { fragment: !!fragment, error: !!error })
+      logger.info('✅ onFinish called:', { fragment: !!fragment, error: !!error })
       
       if (error) {
-        console.error('❌ onFinish error:', error)
+        logger.error('❌ onFinish error:', error)
         setAppState(prev => ({ ...prev, isGenerating: false, streamingProgress: undefined }))
         toast({
           title: 'Generation Failed',
@@ -530,7 +519,7 @@ const EnhancedApp = memo(function EnhancedApp() {
       }
 
       if (fragment) {
-        console.log('📝 Finalizing assistant message with fragment')
+        logger.info('📝 Finalizing assistant message with fragment')
         
         // Update the final assistant message
         setAppState(prev => {
@@ -547,7 +536,7 @@ const EnhancedApp = memo(function EnhancedApp() {
               ],
               object: fragment
             }
-            console.log('📝 Updated existing assistant message')
+            logger.info('📝 Updated existing assistant message')
           } else {
             // Add new assistant message if none exists
             const assistantMessage: Message = {
@@ -559,7 +548,7 @@ const EnhancedApp = memo(function EnhancedApp() {
               object: fragment
             }
             messages.push(assistantMessage)
-            console.log('📝 Added new assistant message')
+            logger.info('📝 Added new assistant message')
           }
           
           return { 
@@ -580,7 +569,7 @@ const EnhancedApp = memo(function EnhancedApp() {
         try {
           await handleGenerationComplete(fragment)
         } catch (completionError) {
-          console.error('❌ Generation completion failed:', completionError)
+          logger.error('❌ Generation completion failed:', completionError)
           setAppState(prev => ({ 
             ...prev, 
             isGenerating: false, 
@@ -594,7 +583,7 @@ const EnhancedApp = memo(function EnhancedApp() {
           })
         }
       } else {
-        console.log('⚠️ No fragment received in onFinish')
+        logger.warn('⚠️ No fragment received in onFinish')
         setAppState(prev => ({ 
           ...prev, 
           isGenerating: false,
@@ -606,7 +595,7 @@ const EnhancedApp = memo(function EnhancedApp() {
 
   // Sync isGenerating with isLoading from useObject and update streaming progress
   useEffect(() => {
-    debugStream('isLoading changed →', isLoading)
+    logger.stream('isLoading changed →', isLoading)
     setAppState(prev => ({ 
       ...prev, 
       isGenerating: isLoading,
@@ -623,7 +612,7 @@ const EnhancedApp = memo(function EnhancedApp() {
   // Handle streaming object updates and parse progress
   useEffect(() => {
     if (object && isLoading) {
-      debugStream('Streaming update', object)
+      logger.stream('Streaming update', object)
       const content: Message['content'] = []
       
       if (object.commentary) {
@@ -738,7 +727,7 @@ const EnhancedApp = memo(function EnhancedApp() {
             object,
           }
           messages.push(newMessage)
-          debugStream('assistant message appended (stream)')
+          logger.stream('assistant message appended (stream)')
         } else if (lastMessage.role === 'assistant') {
           // Update existing assistant message with streaming content
           messages[messages.length - 1] = {
@@ -746,7 +735,7 @@ const EnhancedApp = memo(function EnhancedApp() {
             content,
             object,
           }
-          debugStream('assistant message updated (stream)')
+          logger.stream('assistant message updated (stream)')
         }
         
         return { ...prev, messages, streamingProgress }
@@ -756,7 +745,7 @@ const EnhancedApp = memo(function EnhancedApp() {
 
   // Handle generation completion
   const handleGenerationComplete = useCallback(async (fragment: DeepPartial<FragmentSchema>) => {
-    console.log('🎯 Starting generation completion for fragment:', fragment.template)
+    logger.info('🎯 Starting generation completion for fragment:', fragment.template)
     setAppState(prev => ({ ...prev, isPreviewLoading: true }))
     
     try {
@@ -776,14 +765,14 @@ const EnhancedApp = memo(function EnhancedApp() {
           userId = session?.user?.id || 'demo'
         }
       } catch (error) {
-        console.log('Auth not available, using demo mode')
+        logger.info('Auth not available, using demo mode')
       }
       
       let result: ExecutionResult | null = null
       
       if (shouldUseBrowserPreview(userId) && templateSupportsBrowserPreview(fragment.template || 'nextjs-developer')) {
         if (process.env.NODE_ENV === 'development') {
-          console.log('🌐 Using browser preview for instant rendering')
+          logger.info('🌐 Using browser preview for instant rendering')
         }
         
         // For browser preview, we don't create a result object
@@ -796,7 +785,7 @@ const EnhancedApp = memo(function EnhancedApp() {
         })
       } else {
         if (process.env.NODE_ENV === 'development') {
-          console.log('🚀 Using E2B sandbox for execution')
+          logger.info('🚀 Using E2B sandbox for execution')
         }
         
         result = await getSandbox(
@@ -812,7 +801,7 @@ const EnhancedApp = memo(function EnhancedApp() {
 
       // Update logic to handle null result for browser preview
       if (process.env.NODE_ENV === 'development') {
-        console.log('✅ Preview ready:', result ? 'E2B sandbox' : 'Browser preview')
+        logger.info('✅ Preview ready:', result ? 'E2B sandbox' : 'Browser preview')
       }
 
       // Update app state with results
@@ -845,9 +834,9 @@ const EnhancedApp = memo(function EnhancedApp() {
             ...prev,
             versions: [...prev.versions, version]
           }))
-          console.log('📦 Created version:', version.metadata.message)
+          logger.info('📦 Created version:', version.metadata.message)
         } catch (versionError) {
-          console.error('Failed to create version:', versionError)
+          logger.error('Failed to create version:', versionError)
         }
       }
 
@@ -862,9 +851,9 @@ const EnhancedApp = memo(function EnhancedApp() {
         } as ExecutionResult)
       }
       
-      console.log('🎉 Generation completion successful!')
+      logger.info('🎉 Generation completion successful!')
     } catch (error) {
-      console.error('❌ Generation completion error:', error)
+      logger.error('❌ Generation completion error:', error)
       
       // Re-throw the error to be handled by onFinish
       throw error
@@ -927,7 +916,7 @@ const EnhancedApp = memo(function EnhancedApp() {
         description: `${savedApp.name} has been saved successfully.`,
       })
     } catch (error) {
-      console.error('Auto-save error:', error)
+      logger.error('Auto-save error:', error)
       toast({
         title: 'Save failed',
         description: 'Could not save the app. Please try again.',
@@ -1022,18 +1011,18 @@ const EnhancedApp = memo(function EnhancedApp() {
               userId = session?.user?.id || 'demo'
             }
           } catch (error) {
-            console.log('Auth not available, using demo mode for fork')
+            logger.info('Auth not available, using demo mode for fork')
           }
           
           let sandboxResult: ExecutionResult | null = null
           
           if (shouldUseBrowserPreview(userId) && templateSupportsBrowserPreview(appData.template || 'nextjs-developer')) {
-            console.log('🌐 Using browser preview for forked app')
+            logger.info('🌐 Using browser preview for forked app')
             
             // For browser preview, don't create a result
             sandboxResult = null
           } else {
-            console.log('🚀 Using E2B sandbox for forked app')
+            logger.info('🚀 Using E2B sandbox for forked app')
             
             const response = await fetch('/api/sandbox', {
               method: 'POST',
@@ -1053,12 +1042,12 @@ const EnhancedApp = memo(function EnhancedApp() {
             isPreviewLoading: false
           }))
         } catch (error) {
-          console.error('Error creating preview for forked app:', error)
+          logger.error('Error creating preview for forked app:', error)
           setAppState(prev => ({ ...prev, isPreviewLoading: false }))
         }
       }
     } catch (error) {
-      console.error('Error forking app:', error)
+      logger.error('Error forking app:', error)
       toast({
         title: 'Error',
         description: 'Failed to fork the app. Please try again.',
@@ -1094,7 +1083,7 @@ const EnhancedApp = memo(function EnhancedApp() {
 
   // Handle streaming cancel
   const handleStreamingCancel = useCallback(() => {
-    console.log('🛑 Cancelling generation')
+    logger.info('🛑 Cancelling generation')
     stop()
     setAppState(prev => ({
       ...prev,
@@ -1112,16 +1101,16 @@ const EnhancedApp = memo(function EnhancedApp() {
     e.preventDefault()
     
     if (!input.trim()) {
-      console.log('❌ Empty input, not submitting')
+      logger.debug('❌ Empty input, not submitting')
       return
     }
 
-    console.log('🚀 Submitting message:', input)
+    logger.info('🚀 Submitting message:', input)
 
     // Initialize app if needed
     if (!appState.currentAppId) {
       const newAppId = `app-${Date.now()}`
-      console.log('🆔 Creating new app ID:', newAppId)
+      logger.info('🆔 Creating new app ID:', newAppId)
       setAppState(prev => ({ ...prev, currentAppId: newAppId }))
       await initializeSystems(newAppId)
     }
@@ -1133,7 +1122,7 @@ const EnhancedApp = memo(function EnhancedApp() {
 
     // Create updated messages array
     const updatedMessages = [...appState.messages, newMessage]
-    console.log('📝 Messages before submit:', updatedMessages.length)
+    logger.debug('📝 Messages before submit:', updatedMessages.length)
     
     // Clear input immediately for better UX
     const inputValue = input
@@ -1153,7 +1142,7 @@ const EnhancedApp = memo(function EnhancedApp() {
       }
     }))
 
-    console.log('🔄 Calling submit with', updatedMessages.length, 'messages')
+    logger.debug('🔄 Calling submit with', updatedMessages.length, 'messages')
     
     try {
       await submit({
@@ -1163,9 +1152,9 @@ const EnhancedApp = memo(function EnhancedApp() {
         model: currentModel,
         config: languageModel,
       })
-      console.log('✅ Submit call completed successfully')
+      logger.info('✅ Submit call completed successfully')
     } catch (error) {
-      console.error('❌ Submit error:', error)
+      logger.error('❌ Submit error:', error)
       setAppState(prev => ({ 
         ...prev, 
         isGenerating: false,
@@ -1228,7 +1217,7 @@ const EnhancedApp = memo(function EnhancedApp() {
 
       if (!response.ok) {
         const errorText = await response.text()
-        console.error('Diff API error response:', errorText)
+        logger.error('Diff API error response:', errorText)
         throw new Error(`Diff API failed: ${response.status} - ${errorText.substring(0, 100)}`)
       }
 
@@ -1237,7 +1226,7 @@ const EnhancedApp = memo(function EnhancedApp() {
         const responseText = await response.text()
         result = JSON.parse(responseText)
       } catch (parseError) {
-        console.error('Failed to parse diff API response:', parseError)
+        logger.error('Failed to parse diff API response:', parseError)
         throw new Error('Invalid response from diff API - not valid JSON')
       }
 
@@ -1260,7 +1249,7 @@ const EnhancedApp = memo(function EnhancedApp() {
           try {
             parsedCode = JSON.parse(result.previewCode) as DeepPartial<FragmentSchema>
           } catch (error) {
-            console.error('Failed to parse previewCode as JSON:', error)
+            logger.error('Failed to parse previewCode as JSON:', error)
             parsedCode = result.previewCode as any
           }
         }
@@ -1297,24 +1286,24 @@ const EnhancedApp = memo(function EnhancedApp() {
                 // Version doesn't exist locally, but server created it
                 // Just track the version ID for now
                 if (process.env.NODE_ENV === 'development') {
-                  console.log('📦 Server created version, but not available locally:', result.versionId)
+                  logger.debug('📦 Server created version, but not available locally:', result.versionId)
                 }
               }
               
               if (process.env.NODE_ENV === 'development') {
-                console.log('📦 Version tracked for diff update:', result.versionId)
+                logger.debug('📦 Version tracked for diff update:', result.versionId)
               }
             } catch (versionError) {
-              console.error('Failed to sync version for diff update:', versionError)
+              logger.error('Failed to sync version for diff update:', versionError)
               // Don't fail the entire diff update if version sync fails
               if (process.env.NODE_ENV === 'development') {
-                console.log('⚠️ Version sync failed, but continuing with diff update')
+                logger.warn('⚠️ Version sync failed, but continuing with diff update')
               }
             }
           } else {
             // Version system not initialized, but server created a version
             if (process.env.NODE_ENV === 'development') {
-              console.log('📦 Server created version but client version system not initialized:', result.versionId)
+              logger.debug('📦 Server created version but client version system not initialized:', result.versionId)
             }
           }
         }
@@ -1333,20 +1322,20 @@ const EnhancedApp = memo(function EnhancedApp() {
               userId = session?.user?.id || 'demo'
             }
           } catch (error) {
-            console.log('Auth not available, using demo mode for diff update')
+            logger.info('Auth not available, using demo mode for diff update')
           }
           
           let newResult: ExecutionResult | null = null
           
           if (shouldUseBrowserPreview(userId) && templateSupportsBrowserPreview(parsedCode?.template || 'nextjs-developer')) {
             if (process.env.NODE_ENV === 'development') {
-              console.log('🌐 Using browser preview for diff update')
+              logger.info('🌐 Using browser preview for diff update')
             }
             // For browser preview, don't create a result
             newResult = null
           } else {
             if (process.env.NODE_ENV === 'development') {
-              console.log('🚀 Using E2B sandbox for diff update')
+              logger.info('🚀 Using E2B sandbox for diff update')
             }
             
             newResult = await getSandbox(
@@ -1377,7 +1366,7 @@ const EnhancedApp = memo(function EnhancedApp() {
           }
           
         } catch (previewError) {
-          console.error('Failed to update preview after diff:', previewError)
+          logger.error('Failed to update preview after diff:', previewError)
           setAppState(prev => ({
             ...prev,
             isGenerating: false,
@@ -1402,7 +1391,7 @@ const EnhancedApp = memo(function EnhancedApp() {
         throw new Error(result.errors?.join(', ') || 'Diff update failed')
       }
     } catch (error) {
-      console.error('Diff update error:', error)
+      logger.error('Diff update error:', error)
       setAppState(prev => ({
         ...prev,
         isGenerating: false,
@@ -1439,7 +1428,7 @@ const EnhancedApp = memo(function EnhancedApp() {
         conversationResponse: response
       }))
     } catch (error) {
-      console.error('Conversational modification error:', error)
+      logger.error('Conversational modification error:', error)
     }
   }, [systemState.conversationalSystem, appState.fragment, appState.currentAppId])
 
@@ -1511,14 +1500,14 @@ const EnhancedApp = memo(function EnhancedApp() {
           onSendMessage={handleConversationalModification}
           onApplyModification={async (actionIds) => {
             // Handle modification application
-            console.log('Applying modifications:', actionIds)
+            logger.debug('Applying modifications:', actionIds)
           }}
           onCodeChange={(code) => {
             try {
               const parsedCode = JSON.parse(code)
               setAppState(prev => ({ ...prev, fragment: parsedCode }))
             } catch (error) {
-              console.error('Invalid code format:', error)
+              logger.error('Invalid code format:', error)
             }
           }}
           className="h-full"
@@ -1976,7 +1965,7 @@ const EnhancedApp = memo(function EnhancedApp() {
         userPrompt=""
         onApply={(result) => {
           // Handle DiffUpdateResult object
-          console.log('Diff update result:', result)
+          logger.debug('Diff update result:', result)
           // TODO: Apply the diff result to the code
         }}
         onCancel={() => setUIState(prev => ({ ...prev, isDiffDialogOpen: false }))}
@@ -2037,7 +2026,7 @@ export default function MainPage() {
     <ErrorBoundary
       FallbackComponent={ErrorFallback}
       onError={(error, errorInfo) => {
-        console.error('App error:', error, errorInfo)
+        logger.error('App error:', error, errorInfo)
       }}
     >
       <Suspense fallback={
@@ -2052,4 +2041,4 @@ export default function MainPage() {
       </Suspense>
     </ErrorBoundary>
   )
-} 
+}

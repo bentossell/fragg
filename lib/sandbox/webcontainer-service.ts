@@ -9,6 +9,7 @@
 import { WebContainer, FileSystemTree, SpawnOptions } from '@webcontainer/api';
 import { injectAI } from '@/lib/inject-ai';
 import { TemplateId } from '@/lib/templates';
+import { logger } from '@/lib/logger';
 
 // Status types for callbacks
 export type WebContainerStatus = 
@@ -133,7 +134,7 @@ export class WebContainerService {
       try {
         listener(status, details);
       } catch (e) {
-        console.error('Error in WebContainer status listener:', e);
+        logger.error('Error in WebContainer status listener:', e);
       }
     });
   }
@@ -153,8 +154,8 @@ export class WebContainerService {
     onStatus?: StatusCallback
   ): Promise<string> {
     return this.createApp('react', {
-      '/src/App.jsx': { file: { contents: this.injectAICapabilities(code, 'react') } },
-      '/src/main.jsx': { file: { contents: `
+      'src/App.jsx': { file: { contents: this.injectAICapabilities(code, 'react') } },
+      'src/main.jsx': { file: { contents: `
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
@@ -166,7 +167,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   </React.StrictMode>,
 )
       `.trim() } },
-      '/index.html': { file: { contents: `
+      'index.html': { file: { contents: `
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -181,7 +182,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 </html>
       `.trim() } },
       // Basic Vite config with React plugin
-      '/vite.config.js': { file: { contents: `
+      'vite.config.js': { file: { contents: `
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -194,7 +195,7 @@ export default defineConfig({
   },
 })
       `.trim() } },
-      '/src/index.css': { file: { contents: `
+      'src/index.css': { file: { contents: `
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
@@ -223,15 +224,15 @@ body {
     onStatus?: StatusCallback
   ): Promise<string> {
     return this.createApp('vue', {
-      '/src/App.vue': { file: { contents: this.injectAICapabilities(code, 'vue') } },
-      '/src/main.js': { file: { contents: `
+      'src/App.vue': { file: { contents: this.injectAICapabilities(code, 'vue') } },
+      'src/main.js': { file: { contents: `
 import { createApp } from 'vue'
 import App from './App.vue'
 import './style.css'
 
 createApp(App).mount('#app')
       `.trim() } },
-      '/index.html': { file: { contents: `
+      'index.html': { file: { contents: `
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -245,7 +246,7 @@ createApp(App).mount('#app')
   </body>
 </html>
       `.trim() } },
-      '/src/style.css': { file: { contents: `
+      'src/style.css': { file: { contents: `
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
@@ -275,9 +276,9 @@ body {
     onStatus?: StatusCallback
   ): Promise<string> {
     return this.createApp('nextjs', {
-      // Classic “pages” directory – works everywhere
-      '/pages/index.tsx': { file: { contents: this.injectAICapabilities(code, 'nextjs') } },
-      '/pages/_app.tsx': { file: { contents: `
+      // Classic "pages" directory – works everywhere
+      'pages/index.tsx': { file: { contents: this.injectAICapabilities(code, 'nextjs') } },
+      'pages/_app.tsx': { file: { contents: `
 import type { AppProps } from 'next/app'
 
 // Global styles could be added here if desired
@@ -286,7 +287,7 @@ export default function App({ Component, pageProps }: AppProps) {
 }
       `.trim() } },
       // Minimal TS config so Next.js can compile TS/TSX without errors
-      '/tsconfig.json': { file: { contents: `
+      'tsconfig.json': { file: { contents: `
 {
   "compilerOptions": {
     "target": "ES2021",
@@ -309,7 +310,7 @@ export default function App({ Component, pageProps }: AppProps) {
   "exclude": ["node_modules"]
 }
       `.trim() } },
-      '/next.config.js': { file: { contents: `
+      'next.config.js': { file: { contents: `
 /** @type {import('next').NextConfig} */
 const nextConfig = {}
 module.exports = nextConfig
@@ -325,7 +326,7 @@ module.exports = nextConfig
     onStatus?: StatusCallback
   ): Promise<string> {
     return this.createApp('static-html', {
-      '/index.html': { file: { contents: this.injectAICapabilities(code, 'static-html') } }
+      'index.html': { file: { contents: this.injectAICapabilities(code, 'static-html') } }
     }, onStatus);
   }
 
@@ -354,7 +355,7 @@ module.exports = nextConfig
       
       // Add package.json to files
       const packageJson = this.generatePackageJson(templateType);
-      files['/package.json'] = { file: { contents: packageJson } };
+      files['package.json'] = { file: { contents: packageJson } };
       
       // Mount files
       this.updateStatus('mounting');
@@ -362,15 +363,16 @@ module.exports = nextConfig
       // Capture file structure for easier debugging if mount fails
       const fileList = Object.keys(files);
       try {
+        logger.debug('Mounting files to WebContainer:', fileList);
         await webcontainer.mount(files);
       } catch (mountErr: any) {
         /**
          * Provide an actionable error that surfaces which files were
          * about to be mounted – this is the most common point of failure
-         * when file names contain unsupported characters (e.g. “*”, “:”, “\\”)
+         * when file names contain unsupported characters (e.g. "*", ":", "\\")
          * or wrong root folders.
          */
-        console.error(
+        logger.error(
           '🛑 WebContainer mount failed. File list:',
           fileList.join(', ')
         );
@@ -389,6 +391,7 @@ module.exports = nextConfig
       
       // Install dependencies
       this.updateStatus('installing', { template: templateType });
+      logger.info(`Installing dependencies for ${templateType} template...`);
       const installProcess = await webcontainer.spawn('npm', ['install'], {
         output: true,
       });
@@ -400,12 +403,14 @@ module.exports = nextConfig
       
       // Start the dev server
       this.updateStatus('starting', { command: template.startCommand.join(' ') });
+      logger.info(`Starting dev server with: ${template.startCommand.join(' ')}`);
       const startProcess = await webcontainer.spawn(template.startCommand[0], template.startCommand.slice(1), {
         output: true,
       });
       
       // Wait for server to be ready
       const url = await this.waitForServerReady(webcontainer, template.port);
+      logger.info(`Server ready at: ${url}`);
       this.updateStatus('running', { url });
       
       // Clean up status listener
@@ -415,6 +420,7 @@ module.exports = nextConfig
       
       return url;
     } catch (error) {
+      logger.error('WebContainer application creation failed:', error);
       this.updateStatus('error', error);
       
       // Clean up status listener
@@ -474,6 +480,9 @@ module.exports = nextConfig
         return url;
       } catch (error) {
         retries++;
+        if (retries % 5 === 0) {
+          logger.debug(`Waiting for server to be ready (attempt ${retries}/${maxRetries})...`);
+        }
         await new Promise(resolve => setTimeout(resolve, retryDelay));
       }
     }
@@ -489,7 +498,7 @@ module.exports = nextConfig
     try {
       return injectAI(code, template as TemplateId);
     } catch (error) {
-      console.error('Failed to inject AI capabilities:', error);
+      logger.error('Failed to inject AI capabilities:', error);
       return code;
     }
   }
@@ -502,6 +511,7 @@ module.exports = nextConfig
     code: string,
     onStatus?: StatusCallback
   ): Promise<string> {
+    logger.info(`Creating app from template: ${templateId}`);
     switch (templateId) {
       case 'nextjs-developer':
         return this.createNextJsApp(code, onStatus);
@@ -511,6 +521,7 @@ module.exports = nextConfig
         return this.createStaticHtmlApp(code, onStatus);
       default:
         // Default to React for unknown templates
+        logger.info(`Unknown template "${templateId}", defaulting to React`);
         return this.createReactApp(code, onStatus);
     }
   }
@@ -524,6 +535,7 @@ module.exports = nextConfig
     options: SpawnOptions = {}
   ): Promise<{ exitCode: number; output: string }> {
     const webcontainer = await this.getInstance();
+    logger.debug(`Executing command: ${command} ${args.join(' ')}`);
     
     const process = await webcontainer.spawn(command, args, {
       ...options,
@@ -540,6 +552,7 @@ module.exports = nextConfig
     );
     
     const exitCode = await process.exit;
+    logger.debug(`Command completed with exit code: ${exitCode}`);
     
     return { exitCode, output };
   }
@@ -550,6 +563,7 @@ module.exports = nextConfig
    */
   public static async terminate(): Promise<void> {
     if (this.instance) {
+      logger.info('Terminating WebContainer instance');
       // WebContainer API doesn't have a direct terminate method
       // but we can reset our references to allow garbage collection
       this.instance = null;
