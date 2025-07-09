@@ -180,6 +180,20 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   </body>
 </html>
       `.trim() } },
+      // Basic Vite config with React plugin
+      '/vite.config.js': { file: { contents: `
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 5173,
+    strictPort: true,
+  },
+})
+      `.trim() } },
       '/src/index.css': { file: { contents: `
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
@@ -261,14 +275,38 @@ body {
     onStatus?: StatusCallback
   ): Promise<string> {
     return this.createApp('nextjs', {
-      '/app/page.jsx': { file: { contents: this.injectAICapabilities(code, 'nextjs') } },
-      '/app/layout.jsx': { file: { contents: `
-export default function RootLayout({ children }) {
-  return (
-    <html lang="en">
-      <body>{children}</body>
-    </html>
-  )
+      // Classic “pages” directory – works everywhere
+      '/pages/index.tsx': { file: { contents: this.injectAICapabilities(code, 'nextjs') } },
+      '/pages/_app.tsx': { file: { contents: `
+import type { AppProps } from 'next/app'
+
+// Global styles could be added here if desired
+export default function App({ Component, pageProps }: AppProps) {
+  return <Component {...pageProps} />
+}
+      `.trim() } },
+      // Minimal TS config so Next.js can compile TS/TSX without errors
+      '/tsconfig.json': { file: { contents: `
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "lib": ["dom", "dom.iterable", "es2021"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "types": ["node", "react", "react-dom"]
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules"]
 }
       `.trim() } },
       '/next.config.js': { file: { contents: `
@@ -367,11 +405,11 @@ module.exports = nextConfig
   private static generatePackageJson(templateType: keyof typeof WebContainerService.TEMPLATES): string {
     const template = this.TEMPLATES[templateType];
     
-    const packageJson = {
+    // Base shape common to all templates
+    const packageJson: any = {
       name: `${templateType}-app`,
       private: true,
       version: '0.0.0',
-      type: 'module',
       scripts: {
         dev: templateType === 'nextjs' ? 'next dev' : 'vite',
         build: templateType === 'nextjs' ? 'next build' : 'vite build',
@@ -380,6 +418,14 @@ module.exports = nextConfig
       dependencies: template.dependencies,
       devDependencies: template.devDependencies
     };
+
+    /**
+     * Only Vite projects need `"type": "module"`.  
+     * Next.js handles module-resolution itself and breaks if this field is present.
+     */
+    if (templateType !== 'nextjs') {
+      packageJson.type = 'module';
+    }
     
     return JSON.stringify(packageJson, null, 2);
   }
