@@ -358,7 +358,34 @@ module.exports = nextConfig
       
       // Mount files
       this.updateStatus('mounting');
-      await webcontainer.mount(files);
+
+      // Capture file structure for easier debugging if mount fails
+      const fileList = Object.keys(files);
+      try {
+        await webcontainer.mount(files);
+      } catch (mountErr: any) {
+        /**
+         * Provide an actionable error that surfaces which files were
+         * about to be mounted – this is the most common point of failure
+         * when file names contain unsupported characters (e.g. “*”, “:”, “\\”)
+         * or wrong root folders.
+         */
+        console.error(
+          '🛑 WebContainer mount failed. File list:',
+          fileList.join(', ')
+        );
+
+        // Augment the original error so UI layers can show a nicer hint
+        const enhanced = new Error(
+          `WebContainer mount failed: ${mountErr?.message || mountErr}\n\n` +
+          `Files attempted:\n• ${fileList.join('\n• ')}\n\n` +
+          `Hint: ensure filenames are POSIX-compatible and paths are correct.`
+        );
+        this.updateStatus('error', enhanced);
+        // Remove listener added earlier before throwing
+        if (onStatus) this.removeStatusListener(onStatus);
+        throw enhanced;
+      }
       
       // Install dependencies
       this.updateStatus('installing', { template: templateType });
